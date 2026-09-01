@@ -5,14 +5,18 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { query } from "./db";
 
 const COOKIE = "oligens_session";
-const secret = process.env.AUTH_SECRET;
-if (!secret) console.warn("AUTH_SECRET is not configured.");
 
 export type AuthUser = { id: string; email: string; email_verified: boolean };
 
+function getAuthSecret() {
+  const value = process.env.AUTH_SECRET?.trim();
+  if (!value) throw new Error("AUTH_SECRET is not configured.");
+  if (value.length < 32) throw new Error("AUTH_SECRET must contain at least 32 characters.");
+  return value;
+}
+
 function sign(userId: string) {
-  if (!secret) throw new Error("AUTH_SECRET is not configured.");
-  return jwt.sign({ sub: userId }, secret, { expiresIn: "30d", issuer: "oligens-detector" });
+  return jwt.sign({ sub: userId }, getAuthSecret(), { expiresIn: "30d", issuer: "oligens-detector" });
 }
 
 export function setSession(res: VercelResponse, userId: string) {
@@ -31,13 +35,21 @@ function cookie(req: VercelRequest) {
 
 export async function getUser(req: VercelRequest): Promise<AuthUser | null> {
   const token = cookie(req);
-  if (!token || !secret) return null;
+  if (!token) return null;
+
+  let payload: jwt.JwtPayload;
   try {
-    const payload = jwt.verify(token, secret, { issuer: "oligens-detector" }) as jwt.JwtPayload;
-    if (!payload.sub) return null;
-    const result = await query<AuthUser>("SELECT id,email,email_verified FROM users WHERE id=$1", [payload.sub]);
-    return result.rows[0] ?? null;
-  } catch { return null; }
+    payload = jwt.verify(token, getAuthSecret(), { issuer: "oligens-detector" }) as jwt.JwtPayload;
+  } catch {
+    return null;
+  }
+
+  if (!payload.sub) return null;
+
+  // Do not swallow database errors: /api/auth/me must return a useful 503
+  // instead of pretending that an authenticated user is simply logged out.
+  const result = await query<AuthUser>("SELECT id,email,email_verified FROM users WHERE id=$1", [payload.sub]);
+  return result.rows[0] ?? null;
 }
 
 export function requireMethod(req: VercelRequest, res: VercelResponse, method: string) {
