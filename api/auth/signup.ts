@@ -1,5 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import nodemailer from "nodemailer";
+import crypto from "node:crypto";
 import { transaction } from "../_lib/db";
 import { hashCode, hashPassword, randomCode } from "../_lib/auth";
 
@@ -31,9 +32,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(400).json({ error: "Le mot de passe doit contenir au moins 8 caractères." });
     }
 
-    // Validate SMTP before creating the account. This prevents the old failure mode
-    // where the user was inserted successfully and then signup returned HTTP 500
-    // because Gmail SMTP was not configured.
     const transport = mailer();
     await transport.verify();
 
@@ -41,9 +39,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const passwordHash = await hashPassword(password);
     const codeHash = hashCode(code);
 
-    // Keep account creation and verification-email delivery in the same transaction.
-    // If the email cannot be sent, the new user is rolled back instead of being left
-    // in a permanent unverified state that blocks a second signup attempt.
+    // Keep this INSERT aligned with the Neon V2 schema: users.id is TEXT PRIMARY KEY
+    // without a database default, and last_verification_sent_at does not exist there.
     await transaction(async (client) => {
       const exists = await client.query("SELECT id FROM users WHERE email = $1", [email]);
       if (exists.rowCount) {
@@ -54,13 +51,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       await client.query(
         `INSERT INTO users(
+           id,
            email,
            password_hash,
            verification_code_hash,
-           verification_expires_at,
-           last_verification_sent_at
-         ) VALUES($1,$2,$3,now()+interval '15 minutes',now())`,
-        [email, passwordHash, codeHash]
+           verification_code_expires_at
+         ) VALUES($1,$2,$3,$4,now()+interval '15 minutes')`,
+        [crypto.randomUUID(), email, passwordHash, codeHash]
       );
 
       await transport.sendMail({
