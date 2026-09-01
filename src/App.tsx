@@ -3,6 +3,7 @@ import { HashRouter, Navigate, Outlet, Route, Routes, useLocation } from "react-
 import { Background, Header, NotFound, Sidebar } from "./components/Chrome";
 import { IconCheck, IconClose } from "./components/icons";
 import { ReportModal } from "./components/ScanAndReports";
+import FeatureGate from "./components/FeatureGate";
 import { generateResults } from "./data";
 import { exportAnalysisReportPdf } from "./lib/verify/reportPdfs";
 import AnalysesPage from "./pages/AnalysesPage";
@@ -20,8 +21,7 @@ import { CorpusProvider } from "./state/CorpusContext";
 import { prefersReducedMotion } from "./ui";
 
 function AuthGate() {
-  const { loading, user } = useAuth();
-  const location = useLocation();
+  const { loading, user } = useAuth(); const location = useLocation();
   if (loading) return <div className="min-h-screen grid place-items-center bg-night-950 text-ink-400">Chargement sécurisé…</div>;
   if (!user) return <Navigate to="/auth" replace state={{ from: location.pathname }} />;
   return <Shell />;
@@ -29,57 +29,16 @@ function AuthGate() {
 
 function Shell() {
   const { toasts, dismissToast, reportEntry, closeReport, results, toast } = useAnalysis();
-  const { pathname } = useLocation();
+  const { pathname } = useLocation(); const { subscription } = useAuth();
+  const premium = subscription.plan !== "free";
   useEffect(() => { window.scrollTo({ top: 0, behavior: prefersReducedMotion() ? "auto" : "smooth" }); }, [pathname]);
-
-  const modalResults = reportEntry && reportEntry.name === results?.fileName && results
-    ? results
-    : { ...generateResults(reportEntry?.name ?? "Document.pdf"), fileName: reportEntry?.name ?? "Document.pdf" };
-
-  return (
-    <div className="relative min-h-screen">
-      <Background />
-      <div className="relative z-10"><Header /><div className="mx-auto flex max-w-[1600px]"><Sidebar /><main className="min-w-0 flex-1 px-4 py-6 lg:px-6"><Outlet /></main></div></div>
-      <div className="pointer-events-none fixed bottom-5 right-5 z-[70] flex w-[min(380px,calc(100vw-2rem))] flex-col gap-2.5">
-        {toasts.map((t) => <div key={t.id} className="toast-in glass pointer-events-auto flex items-start gap-3 rounded-xl p-3.5" style={{ borderColor: "rgba(232,189,85,0.3)" }}><span className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg border border-jade-400/40 bg-jade-400/10 text-jade-400"><IconCheck className="h-3.5 w-3.5" /></span><div className="min-w-0 flex-1"><p className="text-[13px] font-semibold text-ink-100">{t.title}</p><p className="mt-0.5 truncate text-[12px] text-ink-400" title={t.body}>{t.body}</p></div><button onClick={() => dismissToast(t.id)} className="grid h-6 w-6 shrink-0 place-items-center rounded-md text-ink-500 transition-colors hover:bg-white/10 hover:text-ink-100" aria-label="Fermer la notification"><IconClose className="h-3.5 w-3.5" /></button></div>)}
-      </div>
-      {reportEntry && <ReportModal entry={reportEntry} results={modalResults} onClose={closeReport} onDownload={() => { exportAnalysisReportPdf(reportEntry, modalResults); toast("Téléchargement lancé", `Oligens_Rapport_${reportEntry.name.replace(/\.\w+$/, "").slice(0, 24)}.pdf — signé et horodaté.`); closeReport(); }} />}
-    </div>
-  );
+  const modalResults = reportEntry && reportEntry.name === results?.fileName && results ? results : { ...generateResults(reportEntry?.name ?? "Document.pdf"), fileName: reportEntry?.name ?? "Document.pdf" };
+  return <div className="relative min-h-screen"><Background /><div className="relative z-10"><Header /><div className="mx-auto flex max-w-[1600px]"><Sidebar /><main className="min-w-0 flex-1 px-4 py-6 lg:px-6"><Outlet /></main></div></div><div className="pointer-events-none fixed bottom-5 right-5 z-[70] flex w-[min(380px,calc(100vw-2rem))] flex-col gap-2.5">{toasts.map(t=><div key={t.id} className="toast-in glass pointer-events-auto flex items-start gap-3 rounded-xl p-3.5" style={{borderColor:"rgba(232,189,85,0.3)"}}><span className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg border border-jade-400/40 bg-jade-400/10 text-jade-400"><IconCheck className="h-3.5 w-3.5" /></span><div className="min-w-0 flex-1"><p className="text-[13px] font-semibold text-ink-100">{t.title}</p><p className="mt-0.5 truncate text-[12px] text-ink-400">{t.body}</p></div><button onClick={()=>dismissToast(t.id)} className="grid h-6 w-6 shrink-0 place-items-center rounded-md text-ink-500 hover:bg-white/10 hover:text-ink-100" aria-label="Fermer la notification"><IconClose className="h-3.5 w-3.5" /></button></div>)}</div>{reportEntry && premium && <ReportModal entry={reportEntry} results={modalResults} onClose={closeReport} onDownload={()=>{exportAnalysisReportPdf(reportEntry,modalResults);toast("Téléchargement lancé",`Oligens_Rapport_${reportEntry.name.replace(/\.\w+$/,"").slice(0,24)}.pdf`);closeReport();}} />}</div>;
 }
 
 export default function App() {
-  return (
-    <HashRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-      <AuthProvider>
-        <AnalysisProvider>
-          <CorpusProvider>
-            <Routes>
-              <Route path="/auth" element={<AuthPage />} />
-              <Route element={<AuthGate />}>
-                <Route path="/" element={<Navigate to="/dashboard" replace />} />
-                <Route path="/dashboard" element={<DashboardPage />} />
-                <Route path="/scan/new" element={<ScanPage />} />
-                <Route path="/analyses" element={<AnalysesPage />} />
-                <Route path="/history" element={<HistoryPage />} />
-                <Route path="/reports" element={<ReportsPage />} />
-                <Route path="/humanizer" element={<HumanizerPage />} />
-                <Route path="/references" element={<VerifyPage />} />
-                <Route path="/database" element={<KnowledgeBasePage />} />
-                <Route path="/knowledge-base" element={<KnowledgeBasePage />} />
-                <Route path="/corpus" element={<CorpusListPage />} />
-                <Route path="/corpus/scan" element={<CorpusScanPage />} />
-                <Route path="/corpus/:id" element={<CorpusDetailPage />} />
-                <Route path="/statistics" element={<StatisticsPage />} />
-                <Route path="/settings" element={<SettingsPage />} />
-                <Route path="/base-institutionnelle" element={<BaseInstitutionnellePage />} />
-                <Route path="/subscriptions" element={<SubscriptionPage />} />
-                <Route path="*" element={<NotFound />} />
-              </Route>
-            </Routes>
-          </CorpusProvider>
-        </AnalysisProvider>
-      </AuthProvider>
-    </HashRouter>
-  );
+  return <HashRouter future={{v7_startTransition:true,v7_relativeSplatPath:true}}><AuthProvider><AnalysisProvider><CorpusProvider><Routes><Route path="/auth" element={<AuthPage />} /><Route element={<AuthGate />}>
+    <Route path="/" element={<Navigate to="/dashboard" replace />} /><Route path="/dashboard" element={<DashboardPage />} /><Route path="/scan/new" element={<ScanPage />} /><Route path="/analyses" element={<AnalysesPage />} /><Route path="/humanizer" element={<HumanizerPage />} /><Route path="/references" element={<VerifyPage />} /><Route path="/database" element={<KnowledgeBasePage />} /><Route path="/knowledge-base" element={<KnowledgeBasePage />} /><Route path="/corpus" element={<CorpusListPage />} /><Route path="/corpus/scan" element={<CorpusScanPage />} /><Route path="/corpus/:id" element={<CorpusDetailPage />} /><Route path="/settings" element={<SettingsPage />} /><Route path="/base-institutionnelle" element={<BaseInstitutionnellePage />} /><Route path="/subscriptions" element={<SubscriptionPage />} />
+    <Route path="/history" element={<FeatureGate feature="L'historique avancé"><HistoryPage /></FeatureGate>} /><Route path="/reports" element={<FeatureGate feature="Les rapports PDF"><ReportsPage /></FeatureGate>} /><Route path="/statistics" element={<FeatureGate feature="Les statistiques"><StatisticsPage /></FeatureGate>} />
+    <Route path="*" element={<NotFound />} /></Route></Routes></CorpusProvider></AnalysisProvider></AuthProvider></HashRouter>;
 }
