@@ -1,0 +1,52 @@
+import { FormEvent, useState } from "react";
+import { Navigate, useLocation, useNavigate } from "react-router-dom";
+import { useAuth } from "../state/AuthContext";
+
+export default function AuthPage() {
+  const { user, loading, signIn, signUp } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [mode, setMode] = useState<"login" | "signup">("login");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  if (!loading && user) return <Navigate to="/dashboard" replace />;
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true); setError(null); setMessage(null);
+    try {
+      if (mode === "signup") {
+        const result = await signUp(email, password);
+        setMessage(result.needsVerification ? "Compte créé. Vérifiez votre e-mail et cliquez sur le lien de confirmation avant de vous connecter." : "Compte créé.");
+        if (!result.needsVerification) navigate((location.state as { from?: string } | null)?.from ?? "/dashboard", { replace: true });
+      } else {
+        await signIn(email, password);
+        navigate((location.state as { from?: string } | null)?.from ?? "/dashboard", { replace: true });
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Impossible de terminer l'opération.");
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <div className="min-h-screen grid place-items-center bg-night-950 px-4">
+      <form onSubmit={submit} className="glass w-full max-w-md rounded-2xl p-6">
+        <p className="label-caps text-gold-400">OLIGENS DETECTOR</p>
+        <h1 className="mt-2 font-display text-2xl font-bold text-ink-100">{mode === "login" ? "Connexion" : "Créer un compte"}</h1>
+        <p className="mt-2 text-sm text-ink-400">Authentification sécurisée par e-mail avec vérification avant activation.</p>
+        <div className="mt-6 space-y-4">
+          <label className="block text-xs font-semibold text-ink-400">E-MAIL<input required type="email" value={email} onChange={e=>setEmail(e.target.value)} className="mt-1.5 w-full rounded-lg border border-white/10 bg-night-900 px-3 py-2.5 text-sm text-ink-100 outline-none focus:border-gold-400/50" /></label>
+          <label className="block text-xs font-semibold text-ink-400">MOT DE PASSE<input required minLength={8} type="password" value={password} onChange={e=>setPassword(e.target.value)} className="mt-1.5 w-full rounded-lg border border-white/10 bg-night-900 px-3 py-2.5 text-sm text-ink-100 outline-none focus:border-gold-400/50" /></label>
+          {error && <p className="rounded-lg border border-rose-400/30 bg-rose-400/10 p-3 text-xs text-rose-300">{error}</p>}
+          {message && <p className="rounded-lg border border-jade-400/30 bg-jade-400/10 p-3 text-xs text-jade-300">{message}</p>}
+          <button disabled={busy} className="btn-gold w-full justify-center px-4 py-2.5">{busy ? "Traitement…" : mode === "login" ? "Se connecter" : "Créer mon compte"}</button>
+          <button type="button" onClick={()=>{setMode(mode === "login" ? "signup" : "login");setError(null);setMessage(null)}} className="w-full text-center text-xs text-ink-400 hover:text-gold-300">{mode === "login" ? "Créer un compte" : "J'ai déjà un compte"}</button>
+        </div>
+      </form>
+    </div>
+  );
+}
