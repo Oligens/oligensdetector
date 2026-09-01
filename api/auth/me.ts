@@ -4,10 +4,10 @@ import { query } from "../_lib/db";
 
 type SubscriptionRow = {
   plan: "free" | "flash" | "pro" | "gold";
-  status: "active" | "expired" | "cancelled" | "none";
-  billing_period: "month" | "year" | "lifetime" | null;
-  current_period_end: string | null;
-  flash_started_at: string | null;
+  status: "active" | "expired" | "cancelled" | "pending";
+  billing_period: "monthly" | "yearly" | "lifetime" | null;
+  expires_at: string | null;
+  started_at: string;
 };
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -17,47 +17,31 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const user = await getUser(req);
     if (!user) return res.status(401).json({ user: null });
 
-    // Do not call expire_subscriptions() from a read endpoint. The old implementation
-    // made /api/auth/me fail with HTTP 500 when the DB function was missing or the
-    // migration was only partially deployed. Compute the effective subscription here;
-    // a later write/webhook can normalize the row in the database.
+    // This query matches the Neon V2 schema exactly: subscriptions uses
+    // started_at/expires_at and billing_period values monthly/yearly/lifetime.
     const result = await query<SubscriptionRow>(
       `SELECT
          CASE
-           WHEN plan <> 'free' AND status = 'active' AND (
-             (current_period_end IS NOT NULL AND current_period_end <= now()) OR
-             (plan = 'flash' AND flash_started_at IS NOT NULL AND flash_started_at <= now() - interval '7 days')
-           ) THEN 'free'::subscription_plan
+           WHEN plan <> 'free' AND status = 'active' AND expires_at IS NOT NULL AND expires_at <= now()
+             THEN 'free'::subscription_plan
            ELSE plan
          END AS plan,
          CASE
-           WHEN plan <> 'free' AND status = 'active' AND (
-             (current_period_end IS NOT NULL AND current_period_end <= now()) OR
-             (plan = 'flash' AND flash_started_at IS NOT NULL AND flash_started_at <= now() - interval '7 days')
-           ) THEN 'active'::subscription_status
+           WHEN plan <> 'free' AND status = 'active' AND expires_at IS NOT NULL AND expires_at <= now()
+             THEN 'active'::subscription_status
            ELSE status
          END AS status,
          CASE
-           WHEN plan <> 'free' AND status = 'active' AND (
-             (current_period_end IS NOT NULL AND current_period_end <= now()) OR
-             (plan = 'flash' AND flash_started_at IS NOT NULL AND flash_started_at <= now() - interval '7 days')
-           ) THEN NULL
+           WHEN plan <> 'free' AND status = 'active' AND expires_at IS NOT NULL AND expires_at <= now()
+             THEN 'monthly'::billing_period
            ELSE billing_period
          END AS billing_period,
          CASE
-           WHEN plan <> 'free' AND status = 'active' AND (
-             (current_period_end IS NOT NULL AND current_period_end <= now()) OR
-             (plan = 'flash' AND flash_started_at IS NOT NULL AND flash_started_at <= now() - interval '7 days')
-           ) THEN NULL
-           ELSE current_period_end
-         END AS current_period_end,
-         CASE
-           WHEN plan <> 'free' AND status = 'active' AND (
-             (current_period_end IS NOT NULL AND current_period_end <= now()) OR
-             (plan = 'flash' AND flash_started_at IS NOT NULL AND flash_started_at <= now() - interval '7 days')
-           ) THEN NULL
-           ELSE flash_started_at
-         END AS flash_started_at
+           WHEN plan <> 'free' AND status = 'active' AND expires_at IS NOT NULL AND expires_at <= now()
+             THEN NULL
+           ELSE expires_at
+         END AS expires_at,
+         started_at
        FROM subscriptions
        WHERE user_id = $1
        LIMIT 1`,
@@ -67,9 +51,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const sub: SubscriptionRow = result.rows[0] ?? {
       plan: "free",
       status: "active",
-      billing_period: null,
-      current_period_end: null,
-      flash_started_at: null,
+      billing_period: "monthly",
+      expires_at: null,
+      started_at: new Date().toISOString(),
     };
 
     let flashAnalysesToday = 0;
@@ -91,8 +75,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         plan: sub.plan,
         status: sub.status,
         period: sub.billing_period,
-        currentPeriodEnd: sub.current_period_end,
-        flashStartedAt: sub.flash_started_at,
+        currentPeriodEnd: sub.expires_at,
+        flashStartedAt: sub.plan === "flash" ? sub.started_at : null,
         flashAnalysesToday,
       },
     });
