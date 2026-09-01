@@ -1,7 +1,8 @@
+import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../state/AuthContext";
 
-export default function FeatureGate({ children, feature }: { children: React.ReactNode; feature: string }) {
+export default function FeatureGate({ children, feature }: { children: ReactNode; feature: string }) {
   const { subscription } = useAuth();
   const premium = subscription.plan === "pro" || subscription.plan === "gold" || subscription.plan === "flash";
   if (premium) return <>{children}</>;
