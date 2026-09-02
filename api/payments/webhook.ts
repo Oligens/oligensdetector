@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import crypto from "node:crypto";
-import { transaction } from "../_lib/db";
+import { transaction } from "../_lib/db.js";
 
 function validSignature(req: VercelRequest, body: string) {
   const secret = process.env.ZAKAPRO_WEBHOOK_SECRET;
@@ -23,26 +23,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const externalId = String(p.externalTransactionId ?? p.external_transaction_id ?? p.id ?? "");
     const status = String(p.status ?? "").toLowerCase();
 
-    if (!transactionId && !externalId) {
-      return res.status(400).json({ error: "Identifiant transaction manquant." });
-    }
+    if (!transactionId && !externalId) return res.status(400).json({ error: "Identifiant transaction manquant." });
 
     await transaction(async (client) => {
       const result = await client.query<{
         id: string;
         user_id: string;
         plan: "flash" | "pro" | "gold";
-        billing_period: "month" | "year" | "lifetime";
-        amount_htg: string;
-        promo_code: string | null;
+        billing_period: "monthly" | "yearly" | "lifetime";
+        amount: string;
+        promo_code_id: string | null;
         status: string;
       }>(
-        `SELECT id,user_id,plan,billing_period,amount_htg,promo_code,status
+        `SELECT id,user_id,plan,billing_period,amount,promo_code_id,status
            FROM payments
-          WHERE ($1::uuid IS NOT NULL AND id=$1::uuid)
+          WHERE ($1::text <> '' AND id=$1)
              OR ($2::text <> '' AND external_transaction_id=$2)
           FOR UPDATE`,
-        [transactionId || null, externalId]
+        [transactionId, externalId]
       );
 
       const payment = result.rows[0];
@@ -59,52 +57,35 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           [payment.id, externalId || null, JSON.stringify(p)]
         );
 
-        const end =
-          payment.billing_period === "month"
-            ? "1 month"
-            : payment.billing_period === "year"
-              ? "1 year"
-              : payment.plan === "flash"
-                ? "7 days"
-                : "100 years";
+        const interval = payment.billing_period === "monthly"
+          ? "1 month"
+          : payment.billing_period === "yearly"
+            ? "1 year"
+            : payment.plan === "flash"
+              ? "7 days"
+              : "100 years";
 
         await client.query(
           `UPDATE subscriptions
               SET plan=$2,
                   status='active',
                   billing_period=$3,
-                  current_period_start=now(),
-                  current_period_end=CASE WHEN $3='lifetime' THEN NULL ELSE now()+$4::interval END,
-                  flash_started_at=CASE WHEN $2='flash' THEN now() ELSE NULL END,
-                  flash_daily_limit=CASE WHEN $2='flash' THEN 1 ELSE NULL END
+                  started_at=now(),
+                  expires_at=CASE WHEN $3='lifetime' THEN NULL ELSE now()+$4::interval END
             WHERE user_id=$1`,
-          [payment.user_id, payment.plan, payment.billing_period, end]
+          [payment.user_id, payment.plan, payment.billing_period, interval]
         );
 
-        // A promo is consumed only after the payment is actually paid. This makes
-        // failed/expired payments retryable and keeps used_count consistent.
-        if (payment.promo_code) {
-          const promo = await client.query<{ id: string }>(
-            `SELECT id
-               FROM promo_codes
-              WHERE code=$1
-              FOR UPDATE`,
-            [payment.promo_code]
+        if (payment.promo_code_id) {
+          const redemption = await client.query(
+            `INSERT INTO promo_redemptions(promo_code_id,user_id,payment_id)
+             VALUES($1,$2,$3)
+             ON CONFLICT(promo_code_id,user_id) DO NOTHING
+             RETURNING id`,
+            [payment.promo_code_id, payment.user_id, payment.id]
           );
-          if (promo.rows[0]) {
-            const redemption = await client.query(
-              `INSERT INTO promo_redemptions(promo_code_id,user_id,payment_id)
-               VALUES($1,$2,$3)
-               ON CONFLICT(promo_code_id,user_id) DO NOTHING
-               RETURNING id`,
-              [promo.rows[0].id, payment.user_id, payment.id]
-            );
-            if (redemption.rowCount) {
-              await client.query(
-                `UPDATE promo_codes SET used_count=used_count+1 WHERE id=$1`,
-                [promo.rows[0].id]
-              );
-            }
+          if (redemption.rowCount) {
+            await client.query(`UPDATE promo_codes SET used_count=used_count+1 WHERE id=$1`, [payment.promo_code_id]);
           }
         }
       } else if (["failed", "cancelled", "expired"].includes(status)) {
