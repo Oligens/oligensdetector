@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { setSession, verifyPassword } from "../_lib/auth";
-import { query } from "../_lib/db";
+import { setSession, verifyPassword } from "../_lib/auth.js";
+import { query } from "../_lib/db.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "POST") return res.status(405).json({ error: "Méthode non autorisée" });
