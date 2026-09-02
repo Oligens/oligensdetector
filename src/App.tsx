@@ -10,7 +10,8 @@ import CorpusListPage,{CorpusDetailPage,CorpusScanPage} from "./pages/CorpusPage
 import DashboardPage,{ScanPage} from "./pages/DashboardPage";
 import { HistoryPage,ReportsPage } from "./pages/HistoryReportsPages";
 import HumanizerPage from "./pages/HumanizerPage";
-import { BaseInstitutionnellePage,KnowledgeBasePage,SettingsPage,StatisticsPage } from "./pages/SystemPages";
+import { BaseInstitutionnellePage,KnowledgeBasePage,SettingsPage } from "./pages/SystemPages";
+import StatisticsPage from "./pages/StatisticsPage";
 import VerifyPage from "./pages/VerifyPage";
 import AuthPage from "./pages/AuthPage";
 import SubscriptionPage from "./pages/SubscriptionPage";
