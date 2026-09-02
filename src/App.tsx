@@ -12,7 +12,7 @@ import { HistoryPage,ReportsPage } from "./pages/HistoryReportsPages";
 import HumanizerPage from "./pages/HumanizerPage";
 import { BaseInstitutionnellePage,KnowledgeBasePage,SettingsPage } from "./pages/SystemPages";
 import StatisticsPage from "./pages/StatisticsPage";
-import VerifyPage from "./pages/VerifyPage";
+import VerifyPage from "./pages/VerifyPageClean";
 import AuthPage from "./pages/AuthPage";
 import SubscriptionPage from "./pages/SubscriptionPage";
 import { AnalysisProvider,useAnalysis } from "./state/AnalysisContext";
