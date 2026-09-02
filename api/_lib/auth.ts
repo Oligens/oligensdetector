@@ -2,7 +2,7 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import crypto from "node:crypto";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { query } from "./db";
+import { query } from "./db.js";
 
 const COOKIE = "oligens_session";
 
@@ -46,8 +46,6 @@ export async function getUser(req: VercelRequest): Promise<AuthUser | null> {
 
   if (!payload.sub) return null;
 
-  // Do not swallow database errors: /api/auth/me must return a useful 503
-  // instead of pretending that an authenticated user is simply logged out.
   const result = await query<AuthUser>("SELECT id,email,email_verified FROM users WHERE id=$1", [payload.sub]);
   return result.rows[0] ?? null;
 }
