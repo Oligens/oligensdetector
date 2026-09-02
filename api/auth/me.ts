@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { getUser } from "../_lib/auth";
-import { query } from "../_lib/db";
+import { getUser } from "../_lib/auth.js";
+import { query } from "../_lib/db.js";
 
 type SubscriptionRow = {
   plan: "free" | "flash" | "pro" | "gold";
@@ -21,8 +21,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const user = await getUser(req);
     if (!user) return res.status(401).json({ user: null });
 
-    // Do not require a subscription row to exist: new/existing accounts are
-    // treated as Free until the subscription migration creates their row.
     const result = await query<SubscriptionRow>(
       `SELECT
         CASE WHEN plan <> 'free' AND status = 'active' AND expires_at IS NOT NULL AND expires_at <= NOW()
@@ -77,22 +75,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const message = error instanceof Error ? error.message : "Service indisponible.";
 
     if (message.includes("AUTH_SECRET")) {
-      return res.status(503).json({
-        error: "Authentification non configurée sur le serveur.",
-        code: "AUTH_SECRET_NOT_CONFIGURED",
-      });
+      return res.status(503).json({ error: "Authentification non configurée sur le serveur.", code: "AUTH_SECRET_NOT_CONFIGURED" });
     }
-
     if (message.includes("DATABASE_URL") || /ENOTFOUND|ECONNREFUSED|ETIMEDOUT|connection/i.test(message)) {
-      return res.status(503).json({
-        error: "Base de données temporairement indisponible.",
-        code: "DATABASE_UNAVAILABLE",
-      });
+      return res.status(503).json({ error: "Base de données temporairement indisponible.", code: "DATABASE_UNAVAILABLE" });
     }
-
-    return res.status(500).json({
-      error: "Erreur interne pendant la récupération de la session.",
-      code: "AUTH_ME_INTERNAL_ERROR",
-    });
+    return res.status(500).json({ error: "Erreur interne pendant la récupération de la session.", code: "AUTH_ME_INTERNAL_ERROR" });
   }
 }
