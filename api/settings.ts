@@ -1,50 +1,12 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import jwt from "jsonwebtoken";
 import { Pool } from "pg";
-
 const COOKIE = "oligens_session";
 let pool: Pool | undefined;
-function getPool() {
-  if (pool) return pool;
-  const connectionString = process.env.DATABASE_URL?.trim();
-  if (!connectionString) throw new Error("DATABASE_URL is not configured.");
-  pool = new Pool({ connectionString, max: 5, idleTimeoutMillis: 10_000, connectionTimeoutMillis: 10_000, ssl: { rejectUnauthorized: false }, application_name: "oligens-detector-settings" });
-  return pool;
-}
-function token(req: VercelRequest) { return (req.headers.cookie ?? "").split(";").map(v => v.trim()).find(v => v.startsWith(`${COOKIE}=`))?.slice(COOKIE.length + 1); }
-async function userId(req: VercelRequest) {
-  const secret = process.env.AUTH_SECRET?.trim();
-  if (!secret || secret.length < 32) throw new Error("AUTH_SECRET is not configured.");
-  const raw = token(req); if (!raw) return null;
-  try { const payload = jwt.verify(raw, secret, { issuer: "oligens-detector" }) as jwt.JwtPayload; return typeof payload.sub === "string" ? payload.sub : null; } catch { return null; }
-}
-const defaults = { alert_threshold: 50, min_words: 30, worker_threshold: 10000, auto_flag: true, archive_90_days: true, auto_purge: true, api_key: "", endpoint: "" };
-function clean(body: Record<string, unknown>) {
-  return {
-    alert_threshold: Math.min(100, Math.max(0, Number(body.alert_threshold ?? defaults.alert_threshold))),
-    min_words: Math.max(0, Number(body.min_words ?? defaults.min_words)),
-    worker_threshold: Math.max(0, Number(body.worker_threshold ?? defaults.worker_threshold)),
-    auto_flag: Boolean(body.auto_flag ?? defaults.auto_flag),
-    archive_90_days: Boolean(body.archive_90_days ?? defaults.archive_90_days),
-    auto_purge: Boolean(body.auto_purge ?? defaults.auto_purge),
-    api_key: String(body.api_key ?? "").slice(0, 500),
-    endpoint: String(body.endpoint ?? "").slice(0, 1000),
-  };
-}
-export default async function handler(req: VercelRequest, res: VercelResponse) {
-  if (!["GET", "PUT", "PATCH"].includes(req.method ?? "")) return res.status(405).json({ error: "Méthode non autorisée." });
-  try {
-    const id = await userId(req);
-    if (!id) return res.status(401).json({ error: "Authentification requise." });
-    const db = getPool();
-    if (req.method === "GET") {
-      const r = await db.query("SELECT alert_threshold,min_words,worker_threshold,auto_flag,archive_90_days,auto_purge,api_key,endpoint,updated_at FROM user_settings WHERE user_id=$1", [id]);
-      if (!r.rows[0]) { const created = await db.query("INSERT INTO user_settings(user_id) VALUES($1) RETURNING alert_threshold,min_words,worker_threshold,auto_flag,archive_90_days,auto_purge,api_key,endpoint,updated_at", [id]); return res.status(200).json({ settings: created.rows[0] }); }
-      return res.status(200).json({ settings: r.rows[0] });
-    }
-    const b = (req.body ?? {}) as Record<string, unknown>, s = clean(b);
-    if (![s.alert_threshold,s.min_words,s.worker_threshold].every(Number.isInteger)) return res.status(400).json({ error: "Paramètres numériques invalides." });
-    const r = await db.query(`INSERT INTO user_settings(user_id,alert_threshold,min_words,worker_threshold,auto_flag,archive_90_days,auto_purge,api_key,endpoint) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT(user_id) DO UPDATE SET alert_threshold=EXCLUDED.alert_threshold,min_words=EXCLUDED.min_words,worker_threshold=EXCLUDED.worker_threshold,auto_flag=EXCLUDED.auto_flag,archive_90_days=EXCLUDED.archive_90_days,auto_purge=EXCLUDED.auto_purge,api_key=EXCLUDED.api_key,endpoint=EXCLUDED.endpoint RETURNING alert_threshold,min_words,worker_threshold,auto_flag,archive_90_days,auto_purge,api_key,endpoint,updated_at`, [id,s.alert_threshold,s.min_words,s.worker_threshold,s.auto_flag,s.archive_90_days,s.auto_purge,s.api_key,s.endpoint]);
-    return res.status(200).json({ settings: r.rows[0] });
-  } catch (error) { console.error("[settings]", error); const message = error instanceof Error ? error.message : "Service indisponible."; if (message.includes("DATABASE_URL") || message.includes("AUTH_SECRET")) return res.status(503).json({ error: message }); return res.status(500).json({ error: "Impossible de sauvegarder les paramètres." }); }
-}
+function getPool(){if(pool)return pool;const connectionString=process.env.DATABASE_URL?.trim();if(!connectionString)throw new Error("DATABASE_URL is not configured.");pool=new Pool({connectionString,max:5,idleTimeoutMillis:10_000,connectionTimeoutMillis:10_000,ssl:{rejectUnauthorized:false},application_name:"oligens-detector-settings"});return pool;}
+function token(req:VercelRequest){return(req.headers.cookie??"").split(";").map(v=>v.trim()).find(v=>v.startsWith(`${COOKIE}=`))?.slice(COOKIE.length+1);}
+async function userId(req:VercelRequest){const secret=process.env.AUTH_SECRET?.trim();if(!secret||secret.length<32)throw new Error("AUTH_SECRET is not configured.");const raw=token(req);if(!raw)return null;try{const payload=jwt.verify(raw,secret,{issuer:"oligens-detector"}) as jwt.JwtPayload;return typeof payload.sub==="string"?payload.sub:null;}catch{return null;}}
+const defaults={alert_threshold:50,min_words:30,worker_threshold:10000,auto_flag:true,archive_90_days:true,auto_purge:true,api_key:"",endpoint:""};
+async function ensureTable(db:Pool){await db.query(`CREATE TABLE IF NOT EXISTS user_settings(user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,alert_threshold INTEGER NOT NULL DEFAULT 50 CHECK(alert_threshold BETWEEN 0 AND 100),min_words INTEGER NOT NULL DEFAULT 30 CHECK(min_words>=0),worker_threshold INTEGER NOT NULL DEFAULT 10000 CHECK(worker_threshold>=0),auto_flag BOOLEAN NOT NULL DEFAULT TRUE,archive_90_days BOOLEAN NOT NULL DEFAULT TRUE,auto_purge BOOLEAN NOT NULL DEFAULT TRUE,api_key TEXT NOT NULL DEFAULT '',endpoint TEXT NOT NULL DEFAULT '',updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`);}
+function clean(body:Record<string,unknown>){return{alert_threshold:Math.min(100,Math.max(0,Number(body.alert_threshold??defaults.alert_threshold))),min_words:Math.max(0,Number(body.min_words??defaults.min_words)),worker_threshold:Math.max(0,Number(body.worker_threshold??defaults.worker_threshold)),auto_flag:Boolean(body.auto_flag??defaults.auto_flag),archive_90_days:Boolean(body.archive_90_days??defaults.archive_90_days),auto_purge:Boolean(body.auto_purge??defaults.auto_purge),api_key:String(body.api_key??"").slice(0,500),endpoint:String(body.endpoint??"").slice(0,1000)};}
+export default async function handler(req:VercelRequest,res:VercelResponse){if(!["GET","PUT","PATCH"].includes(req.method??""))return res.status(405).json({error:"Méthode non autorisée."});try{const id=await userId(req);if(!id)return res.status(401).json({error:"Authentification requise."});const db=getPool();await ensureTable(db);if(req.method==="GET"){const r=await db.query("SELECT alert_threshold,min_words,worker_threshold,auto_flag,archive_90_days,auto_purge,api_key,endpoint,updated_at FROM user_settings WHERE user_id=$1",[id]);if(!r.rows[0]){const created=await db.query("INSERT INTO user_settings(user_id) VALUES($1) RETURNING alert_threshold,min_words,worker_threshold,auto_flag,archive_90_days,auto_purge,api_key,endpoint,updated_at",[id]);return res.status(200).json({settings:created.rows[0]});}return res.status(200).json({settings:r.rows[0]});}const b=(req.body??{}) as Record<string,unknown>,s=clean(b);if(![s.alert_threshold,s.min_words,s.worker_threshold].every(Number.isInteger))return res.status(400).json({error:"Paramètres numériques invalides."});const r=await db.query(`INSERT INTO user_settings(user_id,alert_threshold,min_words,worker_threshold,auto_flag,archive_90_days,auto_purge,api_key,endpoint) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT(user_id) DO UPDATE SET alert_threshold=EXCLUDED.alert_threshold,min_words=EXCLUDED.min_words,worker_threshold=EXCLUDED.worker_threshold,auto_flag=EXCLUDED.auto_flag,archive_90_days=EXCLUDED.archive_90_days,auto_purge=EXCLUDED.auto_purge,api_key=EXCLUDED.api_key,endpoint=EXCLUDED.endpoint RETURNING alert_threshold,min_words,worker_threshold,auto_flag,archive_90_days,auto_purge,api_key,endpoint,updated_at`,[id,s.alert_threshold,s.min_words,s.worker_threshold,s.auto_flag,s.archive_90_days,s.auto_purge,s.api_key,s.endpoint]);return res.status(200).json({settings:r.rows[0]});}catch(error){console.error("[settings]",error);const message=error instanceof Error?error.message:"Service indisponible.";if(message.includes("DATABASE_URL")||message.includes("AUTH_SECRET"))return res.status(503).json({error:message});return res.status(500).json({error:"Impossible de sauvegarder les paramètres."});}}
