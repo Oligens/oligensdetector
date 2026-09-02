@@ -15,38 +15,48 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     if (!process.env.DATABASE_URL?.trim()) {
-      console.error("[auth/me] DATABASE_URL is missing");
       return res.status(503).json({ error: "Base de données non configurée.", code: "DATABASE_NOT_CONFIGURED" });
     }
 
     const user = await getUser(req);
     if (!user) return res.status(401).json({ user: null });
 
+    // Do not require a subscription row to exist: new/existing accounts are
+    // treated as Free until the subscription migration creates their row.
     const result = await query<SubscriptionRow>(
       `SELECT
-         CASE WHEN plan <> 'free' AND status = 'active' AND expires_at IS NOT NULL AND expires_at <= now()
-           THEN 'free'::subscription_plan ELSE plan END AS plan,
-         CASE WHEN plan <> 'free' AND status = 'active' AND expires_at IS NOT NULL AND expires_at <= now()
-           THEN 'active'::subscription_status ELSE status END AS status,
-         CASE WHEN plan <> 'free' AND status = 'active' AND expires_at IS NOT NULL AND expires_at <= now()
-           THEN 'monthly'::billing_period ELSE billing_period END AS billing_period,
-         CASE WHEN plan <> 'free' AND status = 'active' AND expires_at IS NOT NULL AND expires_at <= now()
-           THEN NULL ELSE expires_at END AS expires_at,
-         started_at
-       FROM subscriptions WHERE user_id = $1 LIMIT 1`,
-      [user.id]
+        CASE WHEN plan <> 'free' AND status = 'active' AND expires_at IS NOT NULL AND expires_at <= NOW()
+          THEN 'free'::subscription_plan ELSE plan END AS plan,
+        CASE WHEN plan <> 'free' AND status = 'active' AND expires_at IS NOT NULL AND expires_at <= NOW()
+          THEN 'active'::subscription_status ELSE status END AS status,
+        CASE WHEN plan <> 'free' AND status = 'active' AND expires_at IS NOT NULL AND expires_at <= NOW()
+          THEN 'monthly'::billing_period ELSE billing_period END AS billing_period,
+        CASE WHEN plan <> 'free' AND status = 'active' AND expires_at IS NOT NULL AND expires_at <= NOW()
+          THEN NULL ELSE expires_at END AS expires_at,
+        started_at
+       FROM subscriptions
+       WHERE user_id = $1
+       LIMIT 1`,
+      [user.id],
     );
 
-    const sub: SubscriptionRow = result.rows[0] ?? {
-      plan: "free", status: "active", billing_period: "monthly", expires_at: null, started_at: new Date().toISOString()
+    const sub = result.rows[0] ?? {
+      plan: "free" as const,
+      status: "active" as const,
+      billing_period: "monthly" as const,
+      expires_at: null,
+      started_at: new Date().toISOString(),
     };
 
     let flashAnalysesToday = 0;
     if (sub.plan === "flash") {
       const usage = await query<{ count: string }>(
-        `SELECT count(*)::text AS count FROM usage_events
-         WHERE user_id = $1 AND event_type = 'analysis' AND created_at >= date_trunc('day', now())`,
-        [user.id]
+        `SELECT COUNT(*)::text AS count
+         FROM usage_events
+         WHERE user_id = $1
+           AND event_type = 'analysis'
+           AND created_at >= DATE_TRUNC('day', NOW())`,
+        [user.id],
       );
       flashAnalysesToday = Number(usage.rows[0]?.count ?? 0);
     }
@@ -65,9 +75,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   } catch (error) {
     console.error("[auth/me] error", error);
     const message = error instanceof Error ? error.message : "Service indisponible.";
+
     if (message.includes("AUTH_SECRET")) {
-      return res.status(503).json({ error: "Authentification non configurée sur le serveur.", code: "AUTH_SECRET_NOT_CONFIGURED" });
+      return res.status(503).json({
+        error: "Authentification non configurée sur le serveur.",
+        code: "AUTH_SECRET_NOT_CONFIGURED",
+      });
     }
-    return res.status(503).json({ error: "Base de données ou service d'authentification indisponible.", code: "AUTH_DATABASE_UNAVAILABLE" });
+
+    if (message.includes("DATABASE_URL") || /ENOTFOUND|ECONNREFUSED|ETIMEDOUT|connection/i.test(message)) {
+      return res.status(503).json({
+        error: "Base de données temporairement indisponible.",
+        code: "DATABASE_UNAVAILABLE",
+      });
+    }
+
+    return res.status(500).json({
+      error: "Erreur interne pendant la récupération de la session.",
+      code: "AUTH_ME_INTERNAL_ERROR",
+    });
   }
 }
