@@ -6,15 +6,15 @@ import { useAuth } from "../state/AuthContext";
 
 type Step={title:string;body:string;selector?:string;route?:string};
 const STEPS:Step[]=[
-{title:"Bienvenue dans Oligens Detector",body:"Cette visite présente les fonctions essentielles. Avancez avec Suivant ou fermez le guide.",selector:"[data-tour=sidebar]"},
-{title:"Tableau de bord",body:"Votre point de départ : activité, indicateurs et accès rapide à un nouveau scan.",selector:"[data-tour=dashboard]",route:"/dashboard"},
-{title:"Analyses",body:"Retrouvez vos analyses et leurs résultats associés à chaque document.",selector:"[data-tour=analyses]",route:"/analyses"},
-{title:"Nouveau scan",body:"Importez un document et lancez son analyse. Les quotas et droits du compte sont contrôlés côté serveur.",selector:"[data-tour=new-scan]",route:"/scan/new"},
-{title:"Base institutionnelle",body:"Accédez aux corpus et sources documentaires institutionnels et à leur gestion.",selector:"[data-tour=database]",route:"/base-institutionnelle"},
-{title:"Rapports",body:"Consultez les rapports générés. Les fonctions premium sont protégées par le palier actif.",selector:"[data-tour=reports]",route:"/reports"},
-{title:"Paramètres",body:"Configurez vos préférences et règles. Les modifications sont enregistrées dans Neon.",selector:"[data-tour=settings]",route:"/settings"},
-{title:"Abonnements",body:"Découvrez Flash / Découverte, Oligens Pro et Oligens Gold et les fonctions disponibles avec chaque formule.",selector:"[data-tour=subscriptions]",route:"/subscriptions"},
-{title:"Vous êtes prêt",body:"Commencez par un nouveau scan. Vous pouvez relancer cette visite depuis le menu Profil à tout moment."}
+{title:"Bienvenue dans Oligens Detector",body:"Bienvenue ! Cette courte visite vous montre où trouver les fonctions principales et comment commencer.",selector:"[data-tour=sidebar]"},
+{title:"Tableau de bord",body:"Votre espace d’accueil : retrouvez votre activité, vos résultats et commencez rapidement une nouvelle analyse.",selector:"[data-tour=dashboard]",route:"/dashboard"},
+{title:"Analyses",body:"Retrouvez vos documents analysés, leurs résultats et vos rapports.",selector:"[data-tour=analyses]",route:"/analyses"},
+{title:"Nouveau scan",body:"Importez un document ou collez votre texte, puis lancez l’analyse. Votre formule détermine le nombre d’analyses disponibles.",selector:"[data-tour=new-scan]",route:"/scan/new"},
+{title:"Base institutionnelle",body:"Consultez et organisez les documents et sources de votre espace institutionnel.",selector:"[data-tour=database]",route:"/base-institutionnelle"},
+{title:"Rapports",body:"Consultez vos rapports et téléchargez les documents disponibles avec votre formule.",selector:"[data-tour=reports]",route:"/reports"},
+{title:"Paramètres",body:"Modifiez vos préférences. Vos changements sont automatiquement enregistrés.",selector:"[data-tour=settings]",route:"/settings"},
+{title:"Abonnements",body:"Comparez Flash / Découverte, Oligens Pro et Oligens Gold, leurs limites et leurs fonctionnalités.",selector:"[data-tour=subscriptions]",route:"/subscriptions"},
+{title:"Vous êtes prêt",body:"Vous êtes prêt ! Commencez par une nouvelle analyse. Vous pourrez revoir cette visite depuis votre menu Profil."}
 ];
 function storageKey(id:string){return `oligens:onboarding:v1:${id}`}
 export default function OnboardingTour(){const{user}=useAuth();const location=useLocation();const navigate=useNavigate();const[open,setOpen]=useState(false);const[index,setIndex]=useState(0);const[rect,setRect]=useState<DOMRect|null>(null);const[target,setTarget]=useState<HTMLElement|null>(null);const step=STEPS[index];
