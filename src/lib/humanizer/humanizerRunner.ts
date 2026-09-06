@@ -31,13 +31,12 @@ function tag(o: HumanizeOutcome, mode: "worker" | "direct"): HumanizeOutcome {
   return { texteFinal: o.texteFinal, rapport: { ...o.rapport, engineMode: mode } };
 }
 
-function prepare(text: string, config?: Partial<HumanizerConfig>) {
+function prepare(text: string, config?: Partial<HumanizerConfig>): string {
   return preprocessForHumanization(text, Boolean(config?.modeAggressif));
 }
 
-function runChunkedOnMainThread(text: string, config: Partial<HumanizerConfig> | undefined, onProgress: ((p: HumanizerProgress) => void) | undefined): Promise<HumanizeOutcome> {
-  const prepared = prepare(text, config);
-  return enhancedHumanizer.humanize(prepared, config, onProgress).then((o) => tag(o, "direct"));
+function runDirectPrepared(text: string, config: Partial<HumanizerConfig> | undefined, onProgress: ((p: HumanizerProgress) => void) | undefined): Promise<HumanizeOutcome> {
+  return enhancedHumanizer.humanize(text, config, onProgress).then((o) => tag(o, "direct"));
 }
 
 export function humanizeText(text: string, config?: Partial<HumanizerConfig>, onProgress?: (p: HumanizerProgress) => void): Promise<HumanizeOutcome> {
@@ -51,38 +50,50 @@ export function humanizeText(text: string, config?: Partial<HumanizerConfig>, on
     return Promise.resolve({ texteFinal: "", rapport: emptyReport });
   }
 
-  if (workerFailed) return runChunkedOnMainThread(prepared, config, onProgress);
+  if (workerFailed) return runDirectPrepared(prepared, config, onProgress);
 
   return new Promise((resolve) => {
     let w: Worker;
     try { w = getWorker(); }
-    catch { workerFailed = true; resolve(runChunkedOnMainThread(prepared, config, onProgress)); return; }
+    catch { workerFailed = true; resolve(runDirectPrepared(prepared, config, onProgress)); return; }
 
     const id = Date.now() + Math.random();
-    let gotFirstMessage = false;
     let fallbackTriggered = false;
 
-    const fallbackToChunked = () => {
+    const cleanup = () => {
+      window.clearTimeout(hardTimer);
+      window.clearTimeout(stallTimer);
+      w.removeEventListener("message", onMessage);
+      w.removeEventListener("error", onError);
+    };
+
+    const fallbackToDirect = () => {
       if (fallbackTriggered) return;
       fallbackTriggered = true;
       cleanup();
       workerFailed = true;
+      if (worker === w) {
+        w.terminate();
+        worker = null;
+      }
       onProgress?.({ iteration: 1, total: config?.iterationsMax ?? 5, proba: 0.5, phase: "Worker indisponible — exécution locale", anomalies: [] });
-      runChunkedOnMainThread(prepared, config, onProgress).then(resolve);
+      runDirectPrepared(prepared, config, onProgress).then(resolve).catch((error) => resolve({ texteFinal: prepared, rapport: {
+        proba_initiale: 0, proba_finale: 0, reduction_pourcent: 0, iterations_realisees: 0, historique: [], features_finales: [],
+        decision: error instanceof Error ? error.message : "Échec du moteur local.",
+        config: { seuilCible: config?.seuilCible ?? 0.05, intensite: config?.intensite ?? 0.78, iterationsMax: config?.iterationsMax ?? 5, modeAggressif: Boolean(config?.modeAggressif), langue: config?.langue ?? "mixte" },
+      }}));
     };
 
-    const hardTimer = window.setTimeout(fallbackToChunked, 600_000);
-    const stallTimer = window.setTimeout(fallbackToChunked, FIRST_MESSAGE_MS);
+    const hardTimer = window.setTimeout(fallbackToDirect, 600_000);
+    const stallTimer = window.setTimeout(fallbackToDirect, FIRST_MESSAGE_MS);
     const onMessage = (e: MessageEvent) => {
       const d = e.data as { type?: string; id?: number; progress?: HumanizerProgress; texteFinal?: string; rapport?: HumanizeOutcome["rapport"] } | null;
       if (!d || d.type === "pong" || d.id !== id) return;
-      if (!gotFirstMessage) { gotFirstMessage = true; window.clearTimeout(stallTimer); }
       if (d.type === "progress") { if (d.progress) onProgress?.(d.progress); return; }
       if (d.type === "done" && typeof d.texteFinal === "string" && d.rapport) { cleanup(); resolve(tag({ texteFinal: d.texteFinal, rapport: d.rapport }, "worker")); }
-      else if (d.type === "error") fallbackToChunked();
+      else if (d.type === "error") fallbackToDirect();
     };
-    const onError = () => fallbackToChunked();
-    function cleanup() { window.clearTimeout(hardTimer); window.clearTimeout(stallTimer); w.removeEventListener("message", onMessage); w.removeEventListener("error", onError); }
+    const onError = () => fallbackToDirect();
     w.addEventListener("message", onMessage);
     w.addEventListener("error", onError);
     w.postMessage({ id, text: prepared, config });
