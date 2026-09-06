@@ -4,6 +4,10 @@ import { Pool } from "pg";
 
 export const config = { api: { bodyParser: false } };
 
+// Public machine-to-machine endpoint: no user session/cookie is required.
+// Authentication is exclusively the HMAC signature in `zakapro-signature`.
+export const runtime = "nodejs";
+
 const PLAN_BY_ZAKAPRO_ID: Record<string, { plan: "flash"|"pro"|"gold"; period: "monthly"|"yearly" }> = {
   plan_hj5f9cfw: { plan: "flash", period: "monthly" },
   plan_i2n0t3ox: { plan: "pro", period: "monthly" },
