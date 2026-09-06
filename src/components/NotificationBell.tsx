@@ -5,10 +5,11 @@ import { useAuth } from "../state/AuthContext";
 import { IconBell } from "./icons";
 type Notice={id:string;title:string;body:string;to:string;kind:"ok"|"warn"|"info"};
 export default function NotificationBell(){
- const {entries,analysesCount}=useAnalysis(); const {subscription}=useAuth(); const navigate=useNavigate();
+ const {entries,analysesCount,refreshData}=useAnalysis(); const {subscription}=useAuth(); const navigate=useNavigate();
  const key="oligens-notifications-"+subscription.plan; const [read,setRead]=useState<string[]>([]); const [hidden,setHidden]=useState<string[]>([]); const [open,setOpen]=useState(false); const ref=useRef<HTMLDivElement>(null);
  useEffect(()=>{try{const v=JSON.parse(localStorage.getItem(key)||"{}");setRead(Array.isArray(v.read)?v.read:[]);setHidden(Array.isArray(v.hidden)?v.hidden:[])}catch{}},[key]);
  useEffect(()=>{try{localStorage.setItem(key,JSON.stringify({read,hidden}))}catch{}},[key,read,hidden]);
+ useEffect(()=>{const timer=window.setInterval(()=>{void refreshData()},30000);return()=>window.clearInterval(timer)},[refreshData]);
  useEffect(()=>{const f=(e:MouseEvent)=>{if(ref.current&&!ref.current.contains(e.target as Node))setOpen(false)};document.addEventListener("mousedown",f);return()=>document.removeEventListener("mousedown",f)},[]);
  const notices=useMemo<Notice[]>(()=>{const limit=subscription.plan==="free"||subscription.plan==="flash"?1:subscription.plan==="pro"?20:100;const list:Notice[]=[]; const latest=entries[0];
  list.push({id:"welcome",title:"Votre espace est prêt",body:"Découvrez les outils disponibles dans votre espace Oligens.",to:"/dashboard",kind:"info"});
