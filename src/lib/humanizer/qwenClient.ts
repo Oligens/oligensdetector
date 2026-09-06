@@ -1,10 +1,8 @@
-import { analyzeText } from "../detector/analysisRunner";
 import { humanizeText } from "./humanizerRunner";
 import type { HumanizerConfig, HumanizerProgress, HumanizerReport } from "./humanizerUltimate";
 
-// Kept for UI/backward compatibility. The humanizer no longer depends on a
-// remote provider or an embedded credential: the enhanced local engine is
-// now the primary and deterministic path.
+// Compatibility layer: the humanizer is fully local and no longer depends on
+// a remote provider or an embedded credential.
 export const QWEN_CONFIG = {
   baseUrl: "",
   apiKey: "",
@@ -38,27 +36,32 @@ export async function humanizeHybrid(
   config: Partial<HumanizerConfig>,
   cb: HybridCallbacks = {}
 ): Promise<HybridOutcome> {
+  const startedAt = performance.now();
   cb.onPhase?.("Moteur Oligens Natural Engine — analyse stylistique…");
-  const initial = await analyzeText(text);
-  cb.onPhase?.("Optimisation naturelle — structures, connecteurs et rythme…");
   cb.onFlowResolved?.("local");
 
+  // humanizeText already performs the initial detector pass and carries the
+  // initial probability in its report. Avoid running the detector twice.
   const local = await humanizeText(
     text,
     { ...config, langue: config.langue ?? "mixte" },
-    (progress) => cb.onLocalProgress?.(progress)
+    (progress) => {
+      cb.onPhase?.(progress.phase);
+      cb.onLocalProgress?.(progress);
+    }
   );
 
-  const initialProbability = initial.probabilite_IA;
-  const finalProbability = local.rapport.proba_finale;
   const report: HumanizerReport = {
     ...local.rapport,
-    proba_initiale: initialProbability,
-    proba_finale: finalProbability,
     viaApi: false,
     model: "Oligens Natural Engine",
   };
 
   cb.onApiDelta?.(local.texteFinal);
-  return { flow: "local", text: local.texteFinal, report };
+  return {
+    flow: "local",
+    text: local.texteFinal,
+    report,
+    apiDurationMs: Math.round(performance.now() - startedAt),
+  };
 }
