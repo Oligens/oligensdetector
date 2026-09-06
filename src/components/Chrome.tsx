@@ -3,6 +3,7 @@ import { Link, NavLink } from "react-router-dom";
 import { notifications } from "../data";
 import { useAnalysis } from "../state/AnalysisContext";
 import { Pill } from "../ui";
+import { useAuth } from "../state/AuthContext";
 import {
   IconBell,
   IconChart,
@@ -75,9 +76,11 @@ const navItems = [
   { label: "Base institutionnelle", to: "/base-institutionnelle" },
   { label: "Rapports", to: "/reports" },
   { label: "Paramètres", to: "/settings" },
+  { label: "Abonnements", to: "/subscriptions" },
 ];
 
 export function Header() {
+  const { user, subscription, signOut } = useAuth();
   const [bellOpen, setBellOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const bellRef = useRef<HTMLDivElement>(null);
@@ -177,21 +180,21 @@ export function Header() {
               }`}
             >
               <span className="grid h-8 w-8 place-items-center rounded-md bg-gradient-to-br from-gold-300 to-gold-600 font-display text-[11px] font-bold text-night-900 shadow-[0_4px_16px_-4px_rgba(213,166,60,.6)]">
-                AD
+                {(user?.email?.slice(0,2) ?? "OL").toUpperCase()}
               </span>
               <span className="hidden text-left md:block">
-                <span className="block text-[12.5px] font-semibold leading-tight text-ink-100">A. Delcourt</span>
-                <span className="block text-[10.5px] leading-tight text-gold-400">Administrateur Institution</span>
+                <span className="block max-w-[150px] truncate text-[12.5px] font-semibold leading-tight text-ink-100">{user?.email ?? "Compte Oligens"}</span>
+                <span className="block text-[10.5px] leading-tight text-gold-400">{subscription.plan === "free" ? "Plan Free" : `Oligens ${subscription.plan === "flash" ? "Flash / Découverte" : subscription.plan.toUpperCase()}`}</span>
               </span>
               <IconChevron className={`hidden h-4 w-4 text-ink-400 transition-transform duration-300 md:block ${profileOpen ? "rotate-180" : ""}`} />
             </button>
             {profileOpen && (
               <div className="glass toast-in absolute right-0 top-[calc(100%+10px)] w-60 rounded-xl p-2">
                 <div className="border-b border-white/5 px-3 pb-3 pt-2">
-                  <p className="text-[13px] font-semibold text-ink-100">Aurore Delcourt</p>
-                  <p className="text-[11.5px] text-ink-400">a.delcourt@sorbonne-univ.fr</p>
+                  <p className="truncate text-[13px] font-semibold text-ink-100">{user?.email ?? "Compte Oligens"}</p>
+                  <p className="text-[11.5px] text-ink-400">Session sécurisée</p>
                   <Pill tone="gold" className="mt-2">
-                    <IconCheck className="h-3 w-3" /> Licence Institutionnelle
+                    <IconCheck className="h-3 w-3" /> {subscription.plan === "free" ? "Plan Free" : subscription.plan === "flash" ? "Flash / Découverte" : `Oligens ${subscription.plan.toUpperCase()}`}
                   </Pill>
                 </div>
                 {[
@@ -208,7 +211,7 @@ export function Header() {
                     <span className="text-gold-400">{it.icon}</span> {it.label}
                   </NavLink>
                 ))}
-                <button className="mt-1 flex w-full items-center gap-2.5 rounded-lg border-t border-white/5 px-3 py-2.5 text-[13px] font-medium text-rose-400 transition-colors hover:bg-rose-400/10">
+                <button type="button" onClick={() => { setProfileOpen(false); void signOut(); }} className="mt-1 flex w-full items-center gap-2.5 rounded-lg border-t border-white/5 px-3 py-2.5 text-[13px] font-medium text-rose-400 transition-colors hover:bg-rose-400/10">
                   Se déconnecter
                 </button>
               </div>
@@ -274,6 +277,7 @@ function SideLink({ item }: { item: SideItem }) {
 
 export function Sidebar() {
   const { analysesCount, reportsCount, phase } = useAnalysis();
+  const { subscription } = useAuth();
   const sessionScans = analysesCount - 1248;
   const monthlyUsed = 172 + sessionScans;
   const quotaPct = Math.min(100, Math.round((monthlyUsed / 500) * 100));
@@ -291,6 +295,7 @@ export function Sidebar() {
     { to: "/corpus", label: "Corpus & dossiers", icon: <IconFolder className="h-[18px] w-[18px]" /> },
   ];
   const systeme: SideItem[] = [
+    { to: "/subscriptions", label: "Abonnements", icon: <IconCheck className="h-[18px] w-[18px]" />, badge: subscription.plan === "free" ? "Free" : subscription.plan === "flash" ? "Flash" : subscription.plan.toUpperCase(), badgeTone: "gold" },
     { to: "/statistics", label: "Statistiques", icon: <IconChart className="h-[18px] w-[18px]" /> },
     { to: "/settings", label: "Paramètres", icon: <IconSettings className="h-[18px] w-[18px]" /> },
   ];
