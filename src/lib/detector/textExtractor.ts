@@ -2,12 +2,7 @@
 // Robust text extraction — PDF · DOCX · DOC · TXT · MD · RTF
 // Browser-first, with a Vercel/server fallback for binary files.
 // ============================================================
-import mammoth from "mammoth";
-import * as pdfjsLib from "pdfjs-dist";
-import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
-
 let pdfConfigured = false;
-const mammothBrowser = mammoth as unknown as { extractRawText: (input: { arrayBuffer: ArrayBuffer }) => Promise<{ value: string }> };
 
 function decodeText(buffer: ArrayBuffer): string {
   const utf8 = new TextDecoder("utf-8", { fatal: false }).decode(buffer);
@@ -27,7 +22,9 @@ function validateSignature(ext: string, bytes: Uint8Array): void {
 
 async function extractPdf(file: File, onPage?: (page: number, total: number) => void): Promise<string> {
   if (!pdfConfigured) {
-    pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
+    const pdfjsLib = await import("pdfjs-dist");
+    const workerModule = await import("pdfjs-dist/build/pdf.worker.min.mjs?url");
+    pdfjsLib.GlobalWorkerOptions.workerSrc = workerModule.default;
     pdfConfigured = true;
   }
   const buffer = await file.arrayBuffer();
@@ -52,6 +49,8 @@ async function extractPdf(file: File, onPage?: (page: number, total: number) => 
 async function extractDocx(file: File): Promise<string> {
   const buffer = await file.arrayBuffer();
   validateSignature("docx", new Uint8Array(buffer));
+  const mammothModule = await import("mammoth");
+  const mammothBrowser = mammothModule.default as unknown as { extractRawText: (input: { arrayBuffer: ArrayBuffer }) => Promise<{ value: string }> };
   const { value } = await mammothBrowser.extractRawText({ arrayBuffer: buffer });
   return value.trim();
 }
