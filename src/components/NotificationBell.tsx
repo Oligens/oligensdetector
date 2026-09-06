@@ -12,7 +12,7 @@ export default function NotificationBell(){
  useEffect(()=>{const f=(e:MouseEvent)=>{if(ref.current&&!ref.current.contains(e.target as Node))setOpen(false)};document.addEventListener("mousedown",f);return()=>document.removeEventListener("mousedown",f)},[]);
  const notices=useMemo<Notice[]>(()=>{const limit=subscription.plan==="free"||subscription.plan==="flash"?1:subscription.plan==="pro"?20:100;const list:Notice[]=[]; const latest=entries[0];
  list.push({id:"welcome",title:"Votre espace est prêt",body:"Découvrez les outils disponibles dans votre espace Oligens.",to:"/dashboard",kind:"info"});
- list.push({id:"plan",title:"Abonnement "+subscription.planLabel,body:"Consultez votre formule, ses possibilités et ses limites.",to:"/subscriptions",kind:"ok"});
+ list.push({id:"plan",title:"Abonnement "+subscription.plan,body:"Consultez votre formule, ses possibilités et ses limites.",to:"/subscriptions",kind:"ok"});
  if(analysesCount>=limit)list.unshift({id:"quota-"+subscription.plan+"-"+analysesCount,title:"Limite d’analyses atteinte",body:"Votre limite actuelle est atteinte. Consultez les formules disponibles pour continuer.",to:"/subscriptions",kind:"warn"});
  else if(analysesCount>=Math.max(1,Math.ceil(limit*.8)))list.unshift({id:"quota-near-"+subscription.plan+"-"+analysesCount,title:"Vous approchez de votre limite",body:analysesCount+" analyse(s) utilisée(s) sur "+limit+".",to:"/subscriptions",kind:"warn"});
  if(latest)list.unshift({id:"analysis-"+latest.id,title:"Analyse terminée",body:"« "+latest.name+" » est disponible dans votre historique.",to:"/analyses",kind:"ok"});
