@@ -8,7 +8,7 @@ import {
   type FullAnalysisResult,
   type RunOptions,
 } from "./heuristicEngine";
-import { computeStructuralSignals } from "./structuralSignals";
+import { computeCorrectedOriginality, computeStructuralSignals } from "./structuralSignals";
 
 export const WORKER_THRESHOLD_WORDS = 10_000;
 
@@ -26,13 +26,21 @@ function reinforceResult(result: FullAnalysisResult, sourceText: string): FullAn
   const wordCount = countWords(sourceText);
   if (wordCount < 100) return result;
 
-  const structural = computeStructuralSignals(sourceText);
-  if (structural.signals.length === 0) return result;
+  // Correct the existing 18th-feature pipeline's originality metric. The old
+  // implementation used a denominator that collapsed to 1 for every text.
+  const correctedOriginality = computeCorrectedOriginality(sourceText);
+  const previousOriginality = result.features.scoreOriginalite;
+  const previousZ = Math.max(-4, Math.min(4, (previousOriginality - 0.65) / 0.12));
+  const correctedZ = Math.max(-4, Math.min(4, (correctedOriginality - 0.65) / 0.12));
+  const baseProbability = Math.max(0.0001, Math.min(0.9999, result.probabilite_IA));
+  const correctedLogit = Math.log(baseProbability / (1 - baseProbability)) + (correctedZ - previousZ) * 0.07;
+  const correctedProbability = 1 / (1 + Math.exp(-correctedLogit));
 
-  // Secondary evidence only: the existing calibrated 18-feature model keeps
-  // most of the decision weight. Structural rules add a bounded 18% signal.
-  const fused = Math.max(0, Math.min(1, result.probabilite_IA * 0.82 + structural.score * 0.18));
-  const delta = fused - result.probabilite_IA;
+  const structural = computeStructuralSignals(sourceText);
+  const fused = structural.signals.length === 0
+    ? correctedProbability
+    : Math.max(0, Math.min(1, correctedProbability * 0.82 + structural.score * 0.18));
+
   const structuralContribs = structural.signals
     .sort((a, b) => b.contribution - a.contribution)
     .slice(0, 3)
@@ -59,6 +67,7 @@ function reinforceResult(result: FullAnalysisResult, sourceText: string): FullAn
     probabilite_IA: fused,
     intervalle_confiance_95: [Math.max(0, fused - uncertainty), Math.min(1, fused + uncertainty)],
     confiance_analyse: confidence < 0.3 ? "Faible" : confidence < 0.65 ? "Moyenne" : "Élevée",
+    features: { ...result.features, scoreOriginalite: correctedOriginality },
     rapport_detaille: merged,
     decision_precaution: decision,
   };
