@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { IconCheck, IconDatabase, IconLock, IconRefresh, IconShield } from "../components/icons";
 import { facultyDistribution, fmtInt, monthlyAiRate } from "../data";
 import { QWEN_CONFIG } from "../lib/humanizer/qwenClient";
@@ -288,10 +289,13 @@ export function BaseInstitutionnellePage() {
         kicker="Archives & corpus institutionnels (RAG privé)"
         title="Base institutionnelle"
         actions={
-          <span className="inline-flex items-center gap-2 rounded-lg border border-jade-400/25 bg-jade-400/[0.06] px-3 py-1.5">
-            <span className="live-dot h-2 w-2 rounded-full bg-jade-400" />
-            <span className="font-mono text-[11px] text-jade-400">RAG privé · connecté</span>
-          </span>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="inline-flex items-center gap-2 rounded-lg border border-jade-400/25 bg-jade-400/[0.06] px-3 py-1.5">
+              <span className="live-dot h-2 w-2 rounded-full bg-jade-400" />
+              <span className="font-mono text-[11px] text-jade-400">RAG privé · connecté</span>
+            </span>
+            <Link to="/database" className="btn-gold px-3 py-1.5 text-[11.5px]">Gérer la base</Link>
+          </div>
         }
       />
 
