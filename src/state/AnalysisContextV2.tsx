@@ -194,7 +194,7 @@ export function AnalysisProvider({ children }: { children: ReactNode }) {
     const id = `pending-${Date.now()}`;
     void (async () => {
       try {
-        if (entry.id.startsWith("pending-") || entry.id.startsWith("local-")) { toast("Rapport indisponible", "Cette analyse n'est pas encore persistée dans Neon."); return; }
+        if (entry.id.startsWith("pending-") || entry.id.startsWith("local-")) { toast("Rapport indisponible", "Cette analyse n'est pas encore enregistrée dans votre compte."); return; }
         const response = await fetch("/api/reports", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ analysisId: entry.id, reportType: "pdf", reportData: results ?? {} }) });
         const data = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(data.error ?? "Impossible de créer le rapport.");
