@@ -1,4 +1,5 @@
 import { IAHeuristicDetector, countWords, sentencize, type HeuristicResult } from "../detector/heuristicEngine";
+import { computeStructuralSignals } from "../detector/structuralSignals";
 import type { HumanizeOutcome, HumanizerConfig, HumanizerProgress, HumanizerReport, IterationAnomaly, IterationRecord } from "./humanizerUltimate";
 
 const DEFAULTS: HumanizerConfig = {
@@ -33,6 +34,14 @@ const REPLACEMENTS: Record<string, string[]> = {
   "en définitive": ["au bout du compte", "finalement", "au final"],
   "force est de constater": ["on constate", "les faits montrent", "il faut reconnaître"],
   "on peut affirmer que": ["on peut dire que", "les éléments montrent que", "tout indique que"],
+  "premièrement": ["d'abord", "pour commencer", "en premier lieu"],
+  "deuxièmement": ["ensuite", "puis", "dans un second temps"],
+  "troisièmement": ["enfin", "pour finir"],
+  "d'une part": ["d'un côté", "sur un premier point"],
+  "d'autre part": ["de l'autre", "sur un autre point"],
+  "dans le cadre de": ["dans", "pour", "en vue de"],
+  "au niveau de": ["concernant", "sur", "en matière de"],
+  "il a été démontré que": ["les résultats montrent que", "les faits indiquent que"],
 };
 
 const CONNECTORS = new Set(["cependant", "par ailleurs", "en outre", "de plus", "néanmoins", "toutefois", "ainsi", "par conséquent"]);
@@ -62,12 +71,13 @@ function detectLang(text: string): "fr" | "en" {
   return fr >= en ? "fr" : "en";
 }
 
-function replacePatterns(text: string, rng: () => number): string {
+function replacePatterns(text: string, rng: () => number, intensity: number): string {
   let out = text;
+  const replacementProbability = Math.max(0.45, Math.min(0.92, 0.45 + intensity * 0.5));
   for (const [key, options] of Object.entries(REPLACEMENTS)) {
     const re = new RegExp(escapeRegExp(key), "gi");
     out = out.replace(re, (match) => {
-      if (rng() > 0.72) return match;
+      if (rng() > replacementProbability) return match;
       return options[Math.floor(rng() * options.length)];
     });
   }
@@ -151,6 +161,18 @@ function anomalySnapshot(result: HeuristicResult): IterationAnomaly[] {
   return (result.rapport_detaille ?? []).filter((x) => x.contribution > 0.02).sort((a, b) => b.contribution - a.contribution).slice(0, 5);
 }
 
+function structuralAnomalies(text: string): IterationAnomaly[] {
+  return computeStructuralSignals(text).signals
+    .filter((signal) => signal.contribution > 0.05)
+    .sort((a, b) => b.contribution - a.contribution)
+    .slice(0, 4)
+    .map((signal) => ({
+      nom: `Structure · ${signal.name}`,
+      z_score: Math.max(-4, Math.min(4, signal.contribution * 4)),
+      contribution: signal.contribution * 0.18,
+    }));
+}
+
 function buildReport(initial: HeuristicResult, final: HeuristicResult, cfg: HumanizerConfig, history: IterationRecord[], iterations: number, naturalness: number): HumanizerReport {
   const finalProba = final.probabilite_IA;
   return {
@@ -188,13 +210,18 @@ export class EnhancedHumanizer {
     const lang = cfg.langue === "mixte" ? detectLang(clean) : cfg.langue;
 
     for (let iteration = 1; iteration <= cfg.iterationsMax; iteration++) {
-      const anomalies = anomalySnapshot(analysis);
+      const anomalies = [...anomalySnapshot(analysis), ...structuralAnomalies(current)]
+        .sort((a, b) => Math.abs(b.contribution) - Math.abs(a.contribution))
+        .slice(0, 5);
       history.push({ iteration, proba: score, anomalies });
       onProgress?.({ iteration, total: cfg.iterationsMax, proba: score, phase: `Optimisation naturelle ${iteration}/${cfg.iterationsMax} · ${lang.toUpperCase()}`, anomalies: anomalies.slice(0, 3) });
       if (score <= cfg.seuilCible) break;
 
-      const intensity = Math.max(0.35, Math.min(0.95, cfg.intensite * (1 + score * 0.35)));
-      current = replacePatterns(current, rng);
+      const structuralScore = computeStructuralSignals(current).score;
+      // Structural evidence modulates intensity rather than replacing the
+      // calibrated detector, preventing one phrase from causing over-editing.
+      const intensity = Math.max(0.35, Math.min(0.95, cfg.intensite * (1 + score * 0.25 + structuralScore * 0.18)));
+      current = replacePatterns(current, rng, intensity);
       current = reduceConnectorRepetition(current);
       current = adjustSentenceFlow(current, intensity);
       current = humanizePunctuation(current, rng);
@@ -213,7 +240,7 @@ export class EnhancedHumanizer {
     const finalText = normalize(best);
     const final = this.detector.analyze(finalText);
     const naturalness = humanityScore(finalText);
-    onProgress?.({ iteration: Math.min(cfg.iterationsMax, history.length), total: cfg.iterationsMax, proba: final.probabilite_IA, phase: "Finalisation · contrôle de cohérence", anomalies: anomalySnapshot(final).slice(0, 3) });
+    onProgress?.({ iteration: Math.min(cfg.iterationsMax, history.length), total: cfg.iterationsMax, proba: final.probabilite_IA, phase: "Finalisation · contrôle de cohérence", anomalies: [...anomalySnapshot(final), ...structuralAnomalies(finalText)].slice(0, 3) });
     return { texteFinal: finalText, rapport: buildReport(initial, final, cfg, history, history.length, naturalness) };
   }
 }
