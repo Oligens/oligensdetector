@@ -72,9 +72,12 @@ export function UploadCard({
       }
       setExtracting(null);
       onAnalyze({ name: file.name, text, sizeKo: Math.max(1, Math.round(file.size / 1024)) });
-    } catch {
+    } catch (err) {
       setExtracting(null);
-      setError("Extraction du texte impossible (document corrompu ou protégé). Essayez de coller le contenu directement.");
+      const message = err instanceof Error ? err.message : "Le document n'a pas pu être lu.";
+      setTab("texte");
+      setTextValue("");
+      setError(`Impossible de lire ce fichier : ${message} Vous pouvez coller son contenu ci-dessous pour poursuivre.`);
     } finally {
       busyRef.current = false;
     }
@@ -101,7 +104,7 @@ export function UploadCard({
       <input
         ref={inputRef}
         type="file"
-        accept=".pdf,.docx,.doc,.txt,.md,.rtf"
+        accept=".pdf,.docx,.doc,.txt,.md,.rtf,application/pdf,text/plain,text/markdown,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         className="hidden"
         onChange={(e) => {
           const f = e.target.files?.[0];
