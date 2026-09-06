@@ -96,7 +96,7 @@ export function UploadCard({
         title="Nouvelle Analyse"
         right={
           <span className={`rounded-md border px-2 py-0.5 font-mono text-[10px] font-semibold ${phase === "running" ? "border-gold-400/40 bg-gold-400/10 text-gold-300" : "border-jade-400/25 bg-jade-400/5 text-jade-400"}`}>
-            {phase === "running" ? "MOTEUR V2.1…" : "PRÊT"}
+            {phase === "running" ? "ANALYSE EN COURS…" : "PRÊT"}
           </span>
         }
       />
@@ -144,9 +144,9 @@ export function UploadCard({
             })}
           </ul>
           <p className="mt-3 border-t border-white/[0.06] pt-2.5 font-mono text-[10px] leading-relaxed text-ink-500">
-            IA_DETECT v2.1 · Voie 3 — heuristique de repli
+            Analyse avancée · traitement optimisé
             <br />
-            18 features stylométriques · Web Worker &gt; 10 000 mots
+            plusieurs critères de style · traitement optimisé pour les longs documents
           </p>
           {phase === "done" && (
             <button onClick={onReset} className="btn-ghost mt-3 w-full px-3 py-2 text-[12.5px]">
@@ -197,7 +197,7 @@ export function UploadCard({
                 <p className="mt-2.5 text-[13.5px] font-semibold text-ink-100">
                   Glissez votre document <span className="text-gold-300">ici</span>
                 </p>
-                <p className="mt-0.5 text-[11.5px] text-ink-400">Extraction du texte puis analyse heuristique réelle</p>
+                <p className="mt-0.5 text-[11.5px] text-ink-400">Extraction du texte puis analyse approfondie</p>
                 <button onClick={() => inputRef.current?.click()} className="btn-gold mt-3.5 px-5 py-2 text-[13px]">
                   <IconFile className="h-4 w-4" /> Choisir un fichier
                 </button>
@@ -216,7 +216,7 @@ export function UploadCard({
               <textarea
                 value={textValue}
                 onChange={(e) => setTextValue(e.target.value)}
-                placeholder="Collez ici le contenu du document à analyser… Le moteur calcule les 18 features stylométriques, la probabilité IA, la signature du modèle potentiel et les 5 facteurs explicatifs."
+                placeholder="Collez ici le contenu du document à analyser… Le moteur calcule les plusieurs critères de style, la probabilité IA, la signature du modèle potentiel et les 5 facteurs explicatifs."
                 className="h-36 w-full resize-y rounded-xl border border-white/10 bg-night-900/60 p-3.5 text-[12.5px] leading-relaxed text-ink-200 outline-none transition-colors duration-300 placeholder:text-ink-500 focus:border-gold-400/50"
               />
               <div className="mt-2 flex items-center justify-between gap-3">
