@@ -68,6 +68,9 @@ export function AnalysisProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const toastId = useRef(0);
   const runningRef = useRef(false);
+  const runIdRef = useRef(0);
+  const refreshIdRef = useRef(0);
+  const timersRef = useRef<number[]>([]);
 
   const toast = useCallback((title: string, body: string) => {
     const id = ++toastId.current;
@@ -76,7 +79,13 @@ export function AnalysisProvider({ children }: { children: ReactNode }) {
   }, []);
   const dismissToast = useCallback((id: number) => setToasts((items) => items.filter((item) => item.id !== id)), []);
 
+  const clearTimers = useCallback(() => {
+    timersRef.current.forEach((id) => window.clearTimeout(id));
+    timersRef.current = [];
+  }, []);
+
   const refreshData = useCallback(async () => {
+    const refreshId = ++refreshIdRef.current;
     if (!user) { setEntries([]); setReports([]); setResults(null); setLastScan(null); setAnalysesCount(0); return; }
     try {
       const [aRes, rRes, sRes] = await Promise.all([
@@ -85,6 +94,7 @@ export function AnalysisProvider({ children }: { children: ReactNode }) {
         fetch("/api/stats", { credentials: "include" }),
       ]);
       const [aData, rData, sData] = await Promise.all([aRes.json(), rRes.json(), sRes.json()]);
+      if (refreshId !== refreshIdRef.current) return;
       if (!aRes.ok) throw new Error(aData.error ?? "Impossible de charger les analyses.");
       if (!rRes.ok) throw new Error(rData.error ?? "Impossible de charger les rapports.");
       if (!sRes.ok) throw new Error(sData.error ?? "Impossible de charger les statistiques.");
@@ -97,13 +107,17 @@ export function AnalysisProvider({ children }: { children: ReactNode }) {
         const latestResult = rowToResult(latest);
         if (latestResult) setResults(latestResult);
         setLastScan((previous) => ({ name: String(latest.file_name), text: previous?.name === String(latest.file_name) ? previous.text : "", at: new Date(latest.created_at).getTime(), result: latestResult ?? previous?.result ?? ({} as GlobalResults), entry: rowToEntry(latest), analysisId: String(latest.id) }));
+      } else if (!runningRef.current) {
+        setLastScan(null);
+        setResults(null);
       }
     } catch (error) {
-      toast("Données indisponibles", error instanceof Error ? error.message : "Impossible de charger les données.");
+      if (refreshId === refreshIdRef.current) toast("Données indisponibles", error instanceof Error ? error.message : "Impossible de charger les données.");
     }
-  }, [user, toast]);
+  }, [toast, user]);
 
   useEffect(() => { void refreshData(); }, [refreshData]);
+  useEffect(() => () => clearTimers(), [clearTimers]);
 
   const startScan = useCallback((payload: AnalysisPayload, opts?: { redirectTo?: string }) => {
     if (runningRef.current) { toast("Analyse en cours", "Veuillez patienter avant de lancer une nouvelle analyse."); return; }
@@ -112,6 +126,8 @@ export function AnalysisProvider({ children }: { children: ReactNode }) {
     const wordCount = text ? text.split(/\s+/).length : 0;
     if (wordCount < 30) { toast("Texte trop court", "Le détecteur a besoin d'au moins 30 mots pour produire un résultat fiable."); return; }
 
+    clearTimers();
+    const runId = ++runIdRef.current;
     runningRef.current = true;
     setActiveName(payload.name);
     setActiveWords(wordCount);
@@ -119,13 +135,20 @@ export function AnalysisProvider({ children }: { children: ReactNode }) {
     setPhase("running");
     const reduced = prefersReducedMotion();
     let progressTimer: number | undefined;
-    let cancelled = false;
+
+    const finishUi = () => {
+      if (runId !== runIdRef.current) return;
+      setPhase("idle"); setProgress(0); setActiveName(null); setActiveWords(null);
+    };
 
     const run = async () => {
       try {
-        progressTimer = window.setInterval(() => setProgress((value) => value < 88 ? Math.min(88, value + (reduced ? 8 : 1.7) + Math.random() * (reduced ? 8 : 2.5)) : value), reduced ? 180 : 140);
+        progressTimer = window.setInterval(() => {
+          if (runId !== runIdRef.current) return;
+          setProgress((value) => value < 88 ? Math.min(88, value + (reduced ? 8 : 1.7) + Math.random() * (reduced ? 8 : 2.5)) : value);
+        }, reduced ? 180 : 140);
         const analysis = await analyzeText(text, { language: "auto" });
-        if (cancelled) return;
+        if (runId !== runIdRef.current) return;
         const mapped = mapAnalysis(analysis, payload.name);
         const save = await fetch("/api/analyses/create", {
           method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
@@ -133,6 +156,7 @@ export function AnalysisProvider({ children }: { children: ReactNode }) {
         });
         const saved = await save.json().catch(() => ({}));
         if (!save.ok) throw Object.assign(new Error(saved.error ?? "Impossible d'enregistrer l'analyse."), { code: saved.code, maxWords: saved.maxWords });
+        if (runId !== runIdRef.current) return;
         const row = saved.analysis;
         const entry: RecentEntry = row ? rowToEntry(row) : { id: `local-${Date.now()}`, name: payload.name, kind: "txt", date: new Date().toLocaleDateString("fr-FR"), time: new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }), pages: Math.max(1, Math.ceil(wordCount / 300)), ai: mapped.ia, plagiat: mapped.plagiat, sizeKo: payload.sizeKo, mots: wordCount, fresh: true };
         setProgress(100);
@@ -143,22 +167,29 @@ export function AnalysisProvider({ children }: { children: ReactNode }) {
         setPhase("done");
         toast("Analyse terminée", `${payload.name} — risque IA ${mapped.ia} % · ${fmtInt(wordCount)} mots.`);
         void refreshData();
-        if (opts?.redirectTo) window.setTimeout(() => navigate(opts.redirectTo!), reduced ? 150 : 650);
-        window.setTimeout(() => { setPhase("idle"); setProgress(0); setActiveName(null); setActiveWords(null); }, reduced ? 900 : 1800);
+        if (opts?.redirectTo) timersRef.current.push(window.setTimeout(() => { if (runId === runIdRef.current) navigate(opts.redirectTo!); }, reduced ? 150 : 650));
+        timersRef.current.push(window.setTimeout(finishUi, reduced ? 900 : 1800));
       } catch (error) {
+        if (runId !== runIdRef.current) return;
         setPhase("idle"); setProgress(0); setActiveName(null); setActiveWords(null);
         const err = error as Error & { code?: string; maxWords?: number };
         const suffix = err.code === "WORD_LIMIT" && err.maxWords ? ` Limite : ${err.maxWords.toLocaleString("fr-FR")} mots.` : "";
         toast("Analyse bloquée", `${err.message ?? "Échec de l'analyse."}${suffix}`);
       } finally {
         if (progressTimer) window.clearInterval(progressTimer);
-        runningRef.current = false;
+        if (runId === runIdRef.current) runningRef.current = false;
       }
     };
     void run();
-  }, [navigate, refreshData, toast, user]);
+  }, [clearTimers, navigate, refreshData, toast, user]);
 
-  const resetScan = useCallback(() => { runningRef.current = false; setPhase("idle"); setProgress(0); setActiveName(null); setActiveWords(null); }, []);
+  const resetScan = useCallback(() => {
+    ++runIdRef.current;
+    runningRef.current = false;
+    clearTimers();
+    setPhase("idle"); setProgress(0); setActiveName(null); setActiveWords(null);
+  }, [clearTimers]);
+
   const addReportFromEntry = useCallback((entry: RecentEntry): ReportItem => {
     const id = `pending-${Date.now()}`;
     void (async () => {
