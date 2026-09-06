@@ -45,3 +45,14 @@ export function computeStructuralSignals(text: string): StructuralSignalResult {
   const score = Math.max(0, Math.min(1, signals.reduce((sum, s) => sum + s.contribution, 0) / 3.4));
   return { score, signals };
 }
+
+// Corrected n-gram originality: the denominator is the total number of
+// trigrams, not min(total, 1). This avoids collapsing the metric to ~100%.
+export function computeCorrectedOriginality(text: string): number {
+  const tokens = text.toLowerCase().match(/[\p{L}\p{N}'’-]+/gu) ?? [];
+  if (tokens.length < 10) return 0.5;
+  const total = tokens.length - 2;
+  const unique = new Set<string>();
+  for (let i = 0; i < total; i++) unique.add(tokens.slice(i, i + 3).join(" "));
+  return Math.max(0, Math.min(1, unique.size / total));
+}
