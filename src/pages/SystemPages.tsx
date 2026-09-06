@@ -268,8 +268,8 @@ export function BaseInstitutionnellePage() {
     { id: "s4", name: "Revues internes Open Access", docs: 20823, last: "il y a 2 j", syncing: false },
   ]);
   const [logs, setLogs] = useState<string[]>([
-    "09:42:11 · RAG privé — index vectoriel chargé (84,2 Go, 128 437 docs)",
-    "09:42:09 · Connexion chiffrée TLS 1.3 établie avec le SGBD institutionnel",
+    "09:42:11 · RAG privé — index documentaire chargé (84,2 Go, 128 437 docs)",
+    "09:42:09 · Connexion chiffrée TLS 1.3 établie avec le service documentaire",
     "09:41:57 · Session Administrateur Institution ouverte (a.delcourt)",
   ]);
 
@@ -286,13 +286,13 @@ export function BaseInstitutionnellePage() {
   return (
     <>
       <PageHead
-        kicker="Archives & corpus institutionnels (RAG privé)"
+        kicker="Archives et documents institutionnels"
         title="Base institutionnelle"
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <span className="inline-flex items-center gap-2 rounded-lg border border-jade-400/25 bg-jade-400/[0.06] px-3 py-1.5">
               <span className="live-dot h-2 w-2 rounded-full bg-jade-400" />
-              <span className="font-mono text-[11px] text-jade-400">RAG privé · connecté</span>
+              <span className="font-mono text-[11px] text-jade-400">Sources connectées</span>
             </span>
             <Link to="/database" className="btn-gold px-3 py-1.5 text-[11.5px]">Gérer la base</Link>
           </div>
@@ -368,7 +368,7 @@ export function KnowledgeBasePage() {
         title="Base documentaire"
         actions={
           <span className="rounded-lg border border-jade-400/25 bg-jade-400/[0.06] px-3 py-1.5 font-mono text-[11px] text-jade-400">
-            index vectoriel · {active}/5 sources actives
+            Index · {active}/5 sources actives
           </span>
         }
       />
@@ -376,7 +376,7 @@ export function KnowledgeBasePage() {
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <Kpi label="Corpus locaux" value={String(folders.reduce((a, f) => a + f.files.length, 0))} accent sub="dossiers thématiques" />
         <Kpi label="Mots des corpus locaux" value={fmtInt(totalWords)} sub={`${folders.length} dossiers thématiques`} />
-        <Kpi label="Intégrité de l'index" value="97" unit="%" sub="0 shard corrompu" />
+        <Kpi label="Intégrité de l'index" value="97" unit="%" sub="0 élément endommagé" />
         <Kpi label="Dernière réindexation" value="02:00" sub="cette nuit · 4 min 12 s" />
       </div>
 
@@ -415,7 +415,7 @@ export function KnowledgeBasePage() {
                   setIndexing(true);
                   window.setTimeout(() => {
                     setIndexing(false);
-                    toast("Réindexation terminée", "128 437 documents ré-embeddés en 4 min 12 s.");
+                    toast("Réindexation terminée", "128 437 documents mis à jour en 4 min 12 s.");
                   }, 1800);
                 }}
                 disabled={indexing}
@@ -424,15 +424,15 @@ export function KnowledgeBasePage() {
                 <IconRefresh className={`h-4 w-4 ${indexing ? "animate-spin" : ""}`} />
                 {indexing ? "Réindexation en cours…" : "Réindexer la base"}
               </button>
-              <button onClick={() => toast("Optimisation planifiée", "Le compactage HNSW sera exécuté à 02:00.")} className="btn-ghost w-full px-4 py-2.5 text-[12.5px]">
-                Compacter l'index HNSW
+              <button onClick={() => toast("Optimisation planifiée", "Le compactage index documentaire sera exécuté à 02:00.")} className="btn-ghost w-full px-4 py-2.5 text-[12.5px]">
+                Compacter l'index index documentaire
               </button>
               <div className="glass-soft rounded-xl p-3.5">
                 <p className="label-caps text-ink-500">Santé de l'index</p>
                 <div className="mt-2">
                   <MeterBar value={97} height={5} color="linear-gradient(90deg,#1d8a5f,#3ddc97)" />
                 </div>
-                <p className="mt-1.5 font-mono text-[10.5px] text-ink-400">intégrité 97 % · 0 shard corrompu</p>
+                <p className="mt-1.5 font-mono text-[10.5px] text-ink-400">intégrité 97 % · 0 élément endommagé</p>
               </div>
             </div>
           </section>
