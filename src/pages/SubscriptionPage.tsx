@@ -24,6 +24,7 @@ export default function SubscriptionPage(){
  const price=useMemo(()=>{const row=prices.find(p=>p.plan===plan&&p.billing_period===(period==="month"?"monthly":"yearly"));return row?Number(row.price_htg):ZAKAPRO_AMOUNT[plan][period]},[prices,plan,period]);
  async function checkout(){
    if(!user){setError("Connectez-vous avant de souscrire.");return}
+   if(promo.trim()){setError("Les codes promo ne sont pas compatibles avec le paiement ZakaPro direct. Utilisez le montant officiel affiché.");return}
    setBusy(true);setError(null);setMessage(null);
    try{
      const r=await fetch("/api/payments/create",{method:"POST",credentials:"include",headers:{"Content-Type":"application/json"},body:JSON.stringify({plan,billingPeriod:period,provider,phone,promoCode:promo})});
