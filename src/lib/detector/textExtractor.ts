@@ -103,5 +103,7 @@ export async function extractTextFromFile(file: File, onPage?: (page: number, to
     catch { throw new Error("Le format DOC ancien nécessite l'extracteur serveur. Convertissez le fichier en DOCX ou PDF si le serveur n'est pas disponible."); }
   }
   const raw = decodeText(await file.arrayBuffer());
-  return ext === "rtf" ? cleanRtf(raw) : raw.trim();
+  const text = ext === "rtf" ? cleanRtf(raw) : raw.trim();
+  if (!text) throw new Error("Le fichier ne contient aucun texte lisible.");
+  return text;
 }
