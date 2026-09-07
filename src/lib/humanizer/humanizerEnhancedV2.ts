@@ -85,10 +85,9 @@ function choose<T>(arr: T[], rng: () => number): T {
 }
 
 function replaceBoilerplate(text: string, rng: () => number, intensity: number): string {
-  const replacements = [...FR_REPLACEMENTS, ...EN_REPLACEMENTS];
   let out = text;
   const probability = Math.min(0.98, 0.72 + intensity * 0.24);
-  for (const [regex, options] of replacements) {
+  for (const [regex, options] of [...FR_REPLACEMENTS, ...EN_REPLACEMENTS]) {
     out = out.replace(regex, (match) => (rng() < probability ? choose(options, rng) : match));
   }
   return out;
@@ -99,60 +98,47 @@ function varySentenceStarts(text: string, rng: () => number, intensity: number):
   if (sentences.length < 4 || intensity < 0.45) return text;
   const connectors = /^(cependant|par ailleurs|en outre|de plus|néanmoins|toutefois|donc|ainsi|en effet|moreover|furthermore|however|therefore|nevertheless|also)[,;:]\s+/i;
   let previous = "";
-  return sentences
-    .map((sentence, index) => {
-      const match = sentence.match(connectors);
-      if (match) {
-        const current = match[1].toLowerCase();
-        if (current === previous) {
-          return sentence.slice(match[0].length).replace(/^\p{Ll}/u, (c) => c.toUpperCase());
-        }
-        previous = current;
-        return sentence;
-      }
-      if (index > 0 && rng() < 0.20 * intensity) {
-        const list = /\b(the|and|of|to|is|in)\b/i.test(sentence) ? RHYTHM_CONNECTORS_EN : RHYTHM_CONNECTORS_FR;
-        const prefix = choose(list, rng);
-        return `${prefix} ${sentence.charAt(0).toLowerCase()}${sentence.slice(1)}`;
-      }
+  return sentences.map((sentence, index) => {
+    const match = sentence.match(connectors);
+    if (match) {
+      const current = match[1].toLowerCase();
+      if (current === previous) return sentence.slice(match[0].length).replace(/^\p{Ll}/u, (c) => c.toUpperCase());
+      previous = current;
       return sentence;
-    })
-    .join(" ");
+    }
+    if (index > 0 && rng() < 0.20 * intensity) {
+      const list = /\b(the|and|of|to|is|in)\b/i.test(sentence) ? RHYTHM_CONNECTORS_EN : RHYTHM_CONNECTORS_FR;
+      const prefix = choose(list, rng);
+      return `${prefix} ${sentence.charAt(0).toLowerCase()}${sentence.slice(1)}`;
+    }
+    return sentence;
+  }).join(" ");
 }
 
 function varyFlow(text: string, intensity: number, rng: () => number): string {
   const sentences = splitSentences(text);
   if (sentences.length < 3) return text;
   const out: string[] = [];
-
-  for (let i = 0; i < sentences.length; i++) {
-    const sentence = sentences[i];
+  for (const sentence of sentences) {
     const words = sentence.split(/\s+/);
     const last = sentence.match(/[.!?…]$/)?.[0] ?? ".";
-
     if (words.length > 34 && intensity > 0.45) {
       const cut = Math.max(12, Math.min(words.length - 10, Math.floor(words.length * (0.52 + rng() * 0.12))));
       out.push(words.slice(0, cut).join(" ") + last, words.slice(cut).join(" "));
       continue;
     }
-
     if (words.length < 8 && out.length > 0 && rng() < 0.28 * intensity) {
       const previous = out.pop() ?? "";
       out.push(previous.replace(/[.!?…]+$/g, "") + "; " + sentence.charAt(0).toLowerCase() + sentence.slice(1));
       continue;
     }
-
-    // Move a trailing discourse phrase to the middle when the sentence has a
-    // natural comma boundary. This changes rhythm without inventing facts.
-    const clause = sentence.match(/^(.{28,}?),(\s*)(cependant|pourtant|toutefois|en réalité|however|however,)(\s+.+)$/i);
+    const clause = sentence.match(/^(.{28,}?),(\s*)(cependant|pourtant|toutefois|en réalité|however)(\s+.+)$/i);
     if (clause && rng() < 0.45 * intensity) {
       out.push(`${clause[1]}${clause[4]} ${clause[3]}${last}`);
       continue;
     }
-
     out.push(sentence);
   }
-
   return out.join(" ");
 }
 
@@ -170,9 +156,7 @@ function lexicalRefresh(text: string, rng: () => number, intensity: number): str
   ];
   let out = text;
   const probability = 0.12 + intensity * 0.22;
-  for (const [regex, options] of common) {
-    out = out.replace(regex, (match) => (rng() < probability ? choose(options, rng) : match));
-  }
+  for (const [regex, options] of common) out = out.replace(regex, (match) => (rng() < probability ? choose(options, rng) : match));
   return out;
 }
 
@@ -183,7 +167,7 @@ function punctuationAndSpacing(text: string, rng: () => number, intensity: numbe
     if (sentences.length > 5) {
       const idx = Math.floor(rng() * (sentences.length - 1));
       const a = sentences[idx].replace(/[.!?…]+$/, "");
-      const b = sentences[idx + 1].replace(/^[\s\p{Ll}]/u, (c) => c.trim());
+      const b = sentences[idx + 1].replace(/^[.!?…]+/, "").trim();
       if (a.split(/\s+/).length < 28 && b.split(/\s+/).length < 28) {
         sentences.splice(idx, 2, `${a} — ${b.charAt(0).toLowerCase()}${b.slice(1)}.`);
         out = sentences.join(" ");
@@ -195,7 +179,6 @@ function punctuationAndSpacing(text: string, rng: () => number, intensity: numbe
 
 function ensureChange(original: string, candidate: string): string {
   if (normalize(candidate) !== normalize(original)) return normalize(candidate);
-
   const sentences = splitSentences(original);
   if (sentences.length > 1) {
     const longIndex = sentences.findIndex((s) => s.split(/\s+/).length > 24);
@@ -206,7 +189,6 @@ function ensureChange(original: string, candidate: string): string {
       return normalize(sentences.join(" "));
     }
   }
-
   const safe: Replacement[] = [
     [/\bafin de\b/gi, ["pour"]],
     [/\bpar conséquent\b/gi, ["donc"]],
@@ -215,13 +197,7 @@ function ensureChange(original: string, candidate: string): string {
     [/\bde plus\b/gi, ["aussi"]],
     [/\bil est\b/gi, ["on trouve"]],
   ];
-  for (const [regex, options] of safe) {
-    if (regex.test(original)) return normalize(original.replace(regex, options[0]));
-  }
-
-  // Last-resort stylistic change: punctuation only, never content. This keeps
-  // the UI honest: a humanization action must not silently return an untouched
-  // string when the source contains no known boilerplate.
+  for (const [regex, options] of safe) if (regex.test(original)) return normalize(original.replace(regex, options[0]));
   const semi = original.indexOf(";");
   if (semi >= 0) return normalize(original.slice(0, semi) + "." + original.slice(semi + 1));
   const comma = original.indexOf(", ");
@@ -230,9 +206,7 @@ function ensureChange(original: string, candidate: string): string {
 }
 
 function anomalies(result: ReturnType<typeof analyzeCalibrated>): IterationAnomaly[] {
-  return (result.rapport_detaille ?? [])
-    .filter((x) => Math.abs(x.contribution) > 0.02)
-    .slice(0, 6);
+  return (result.rapport_detaille ?? []).filter((x) => Math.abs(x.contribution) > 0.02).slice(0, 6);
 }
 
 function candidateScore(original: string, candidate: string): number {
@@ -244,14 +218,9 @@ function candidateScore(original: string, candidate: string): number {
 }
 
 export const enhancedHumanizerV2 = {
-  async humanize(
-    text: string,
-    config: Partial<HumanizerConfig> = {},
-    onProgress?: (p: HumanizerProgress) => void,
-  ): Promise<HumanizeOutcome> {
+  async humanize(text: string, config: Partial<HumanizerConfig> = {}, onProgress?: (p: HumanizerProgress) => void): Promise<HumanizeOutcome> {
     const cfg = { ...DEFAULTS, ...config };
     const original = normalize(text);
-
     if (!original) {
       return {
         texteFinal: "",
@@ -274,26 +243,20 @@ export const enhancedHumanizerV2 = {
     let best = original;
     let bestScore = currentScore;
     const history: IterationRecord[] = [];
-    const rng = seed(original);
     const passes = Math.max(1, Math.min(12, cfg.iterationsMax));
     let iterations = 0;
 
-    // Every request performs a real rewrite pass. We evaluate several
-    // conservative candidates and keep the one that improves the calibrated
-    // evidence score without exploding the document length.
     for (let i = 1; i <= passes; i++) {
       iterations = i;
       const before = analyzeCalibrated(current);
       const currentAnomalies = anomalies(before);
       history.push({ iteration: i, proba: currentScore, anomalies: currentAnomalies });
       onProgress?.({ iteration: i, total: passes, proba: currentScore, phase: `Réécriture naturelle ${i}/${passes}`, anomalies: currentAnomalies });
-
       if (i > 1 && currentScore <= cfg.seuilCible) break;
 
       const intensity = Math.max(0.35, Math.min(0.96, cfg.intensite + currentScore * 0.20));
       const candidates = [0, 1, 2].map((variant) => {
-        const localSeed = `${current}:${i}:${variant}`;
-        const localRng = seed(localSeed);
+        const localRng = seed(`${current}:${i}:${variant}`);
         let next = replaceBoilerplate(current, localRng, intensity);
         if (variant !== 1) next = lexicalRefresh(next, localRng, intensity);
         next = varySentenceStarts(next, localRng, variant === 0 ? intensity * 0.65 : intensity);
@@ -306,25 +269,20 @@ export const enhancedHumanizerV2 = {
         .filter((candidate) => candidate.length > 0)
         .map((candidate) => ({ candidate, score: candidateScore(original, candidate) }))
         .sort((a, b) => a.score - b.score);
-
       const selected = scored[0]?.candidate ?? current;
       const selectedResult = analyzeCalibrated(selected);
       current = selected;
       currentScore = selectedResult.probabilite_IA;
 
-      // Prefer the best candidate, but do not chase tiny score changes that
-      // would cause excessive rewriting.
       if (selected !== original && (currentScore + 0.005 < bestScore || best === original)) {
         best = selected;
         bestScore = currentScore;
       }
-
       if (i === passes && best === original) {
         best = selected;
         bestScore = currentScore;
       }
 
-      // Yield so long documents remain responsive in the browser.
       await new Promise<void>((resolve) => {
         if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => resolve());
         else window.setTimeout(resolve, 0);
@@ -350,14 +308,7 @@ export const enhancedHumanizerV2 = {
       warning: "Le score indique des indices stylistiques et ne constitue pas une preuve d'origine humaine.",
     };
 
-    onProgress?.({
-      iteration: iterations,
-      total: passes,
-      proba: final.probabilite_IA,
-      phase: changed ? "Finalisation" : "Aucune modification sûre trouvée",
-      anomalies: anomalies(final),
-    });
-
+    onProgress?.({ iteration: iterations, total: passes, proba: final.probabilite_IA, phase: changed ? "Finalisation" : "Aucune modification sûre trouvée", anomalies: anomalies(final) });
     return { texteFinal: finalText, rapport };
   },
 };
