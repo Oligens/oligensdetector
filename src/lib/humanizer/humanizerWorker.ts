@@ -1,7 +1,9 @@
 import { enhancedHumanizer } from "./humanizerEnhanced";
 import type { HumanizerConfig, HumanizerProgress, HumanizerReport } from "./humanizerUltimate";
 
-type WorkerRequest = { type: "ping" } | { id: number; text: string; config?: Partial<HumanizerConfig> };
+type WorkerRequest =
+  | { type: "ping" }
+  | { id: number; text: string; config?: Partial<HumanizerConfig> };
 type WorkerResponse =
   | { type: "pong" }
   | { id: number; type: "progress"; progress: HumanizerProgress }
@@ -15,13 +17,23 @@ const scope = self as unknown as {
 
 scope.addEventListener("message", (event) => {
   const data = event.data;
-  if (data?.type === "ping") {
+  if (data.type === "ping") {
     scope.postMessage({ type: "pong" });
     return;
   }
-  const { id, text, config } = data as { id: number; text: string; config?: Partial<HumanizerConfig> };
+
+  if (!("id" in data) || typeof data.id !== "number" || typeof data.text !== "string") {
+    return;
+  }
+
   enhancedHumanizer
-    .humanize(text, config, (progress) => scope.postMessage({ id, type: "progress", progress }))
-    .then(({ texteFinal, rapport }) => scope.postMessage({ id, type: "done", texteFinal, rapport }))
-    .catch((err: unknown) => scope.postMessage({ id, type: "error", error: err instanceof Error ? err.message : String(err) }));
+    .humanize(data.text, data.config, (progress) => scope.postMessage({ id: data.id, type: "progress", progress }))
+    .then(({ texteFinal, rapport }) => scope.postMessage({ id: data.id, type: "done", texteFinal, rapport }))
+    .catch((err: unknown) =>
+      scope.postMessage({
+        id: data.id,
+        type: "error",
+        error: err instanceof Error ? err.message : String(err),
+      }),
+    );
 });
