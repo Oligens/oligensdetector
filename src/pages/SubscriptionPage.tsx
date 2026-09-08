@@ -7,12 +7,14 @@ const ZAKAPRO_APP_KEY="zk_pub_z471ugkkmt04kzwv4lgo";
 const ZAKAPRO_BASE="https://zakapro.vercel.app";
 const ZAKAPRO_SDK=`${ZAKAPRO_BASE}/sdk/v4/zaka.js`;
 const ZAKAPRO_PLANS:Record<Exclude<PlanId,"free">,Record<BillingPeriod,string>>={
-  flash:{month:`${ZAKAPRO_BASE}/#/hub/app_vl2e7enq/plan_tjmlghni`,year:`${ZAKAPRO_BASE}/#/hub/app_vl2e7enq/plan_tjmlghni`},
-  pro:{month:`${ZAKAPRO_BASE}/#/hub/app_vl2e7enq/plan_5or3mqd7`,year:`${ZAKAPRO_BASE}/#/hub/app_vl2e7enq/plan_m1axkkf3`},
-  gold:{month:`${ZAKAPRO_BASE}/#/hub/app_vl2e7enq/plan_m798n6nu`,year:`${ZAKAPRO_BASE}/#/hub/app_vl2e7enq/plan_3j3nkzqs`}
+  flash:{month:`${ZAKAPRO_BASE}/#/hub/app_vl2e7enq/plan_tjmlghni`,year:`${ZAKAPRO_BASE}/#/hub/app_vl2e7enq/plan_tjmlghni`,lifetime:`${ZAKAPRO_BASE}/#/hub/app_vl2e7enq/plan_tjmlghni`},
+  pro:{month:`${ZAKAPRO_BASE}/#/hub/app_vl2e7enq/plan_5or3mqd7`,year:`${ZAKAPRO_BASE}/#/hub/app_vl2e7enq/plan_m1axkkf3`,lifetime:`${ZAKAPRO_BASE}/#/hub/app_vl2e7enq/plan_m1axkkf3`},
+  gold:{month:`${ZAKAPRO_BASE}/#/hub/app_vl2e7enq/plan_m798n6nu`,year:`${ZAKAPRO_BASE}/#/hub/app_vl2e7enq/plan_3j3nkzqs`,lifetime:`${ZAKAPRO_BASE}/#/hub/app_vl2e7enq/plan_3j3nkzqs`}
 };
 const ZAKAPRO_AMOUNT:Record<Exclude<PlanId,"free">,Record<BillingPeriod,number>>={
-  flash:{month:70,year:70},pro:{month:250,year:2610},gold:{month:2500,year:26100}
+  flash:{month:70,year:70,lifetime:70},
+  pro:{month:250,year:2610,lifetime:2610},
+  gold:{month:2500,year:26100,lifetime:26100}
 };
 const WARNING="⚠️ Attention : Le montant du dépôt MonCash / NatCash doit être exact au centime près. Ne dépassez pas et ne réduisez pas le montant indiqué, sinon votre abonnement ne sera pas validé automatiquement et vous risquez de perdre votre paiement.";
 
