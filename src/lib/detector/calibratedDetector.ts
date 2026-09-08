@@ -1,5 +1,6 @@
 import { FeatureExtractor, countWords, type Features, type HeuristicResult } from "./heuristicEngine";
 import { computeCorrectedOriginality, computeStructuralSignals } from "./structuralSignals";
+import { evidenceConfidence, fuseEvidence, lengthConfidence } from "../ai/innovationLayer";
 
 const clamp = (v: number, min = 0, max = 1) => Math.max(min, Math.min(max, v));
 const scale = (v: number, lo: number, hi: number) => clamp((v - lo) / (hi - lo));
@@ -75,14 +76,35 @@ export function analyzeCalibrated(text: string, genre = "generic"): HeuristicRes
 
   // Base prior is intentionally below 50%. A neutral text should not be
   // labelled 50% AI simply because the classifier is uncertain.
-  const raw = clamp(0.10 + aiEvidence * 0.92 - humanEvidence * 0.54);
+  // Innovation layer: fuse several independent evidence families instead of
+  // letting a single phrase or stylistic trait decide the result.
+  const fused = fuseEvidence([
+    { name: "templates", value: template, weight: 0.26 },
+    { name: "repetition", value: repetition, weight: 0.10 },
+    { name: "regularity", value: regularity, weight: 0.10 },
+    { name: "starts", value: startRegularity, weight: 0.08 },
+    { name: "similarity", value: similarity, weight: 0.09 },
+    { name: "uniformity", value: styleUniformity, weight: 0.07 },
+    { name: "transitions", value: standardTransitions, weight: 0.08 },
+    { name: "originality", value: lowOriginality, weight: 0.06 },
+    { name: "structural", value: structural.score, weight: 0.08 },
+    { name: "humanEvidence", value: 1 - humanEvidence, weight: 0.08 },
+  ]);
 
-  // Short texts must remain conservative. Long texts get more confidence, but
-  // confidence never manufactures evidence.
-  const lengthConfidence = clamp((words - 120) / 900, 0, 1);
+  // Genre-aware conservatism: formal writing can naturally contain templates
+  // and regular transitions, so we require stronger agreement before raising
+  // the score for academic/legal/administrative genres.
+  const formalGenre = /academic|académique|scientific|scientifique|legal|juridique|administratif|administrative|report|rapport/i.test(genre);
+  const prior = formalGenre ? 0.07 : 0.10;
+  const raw = clamp(prior + fused.score * 0.86 - humanEvidence * (formalGenre ? 0.34 : 0.48));
+
+  // Confidence is evidence breadth + agreement + document length. Length
+  // changes confidence, never evidence itself.
+  const length = lengthConfidence(words);
+  const confidence = evidenceConfidence(words, fused.agreement, fused.activeSignals);
   const evidenceStrength = clamp(Math.abs(aiEvidence - humanEvidence) * 1.8 + 0.18);
-  const confidence = clamp(0.25 + lengthConfidence * 0.55 + evidenceStrength * 0.20, 0.25, 1);
-  const probability = clamp(0.18 + (raw - 0.18) * confidence);
+  const blendedConfidence = clamp(confidence * 0.78 + length * 0.12 + evidenceStrength * 0.10, 0.22, 1);
+  const probability = clamp(0.16 + (raw - 0.16) * blendedConfidence);
 
   const uncertainty = clamp(0.24 - confidence * 0.14, 0.08, 0.24);
   const intervalle_confiance_95: [number, number] = [
@@ -110,7 +132,7 @@ export function analyzeCalibrated(text: string, genre = "generic"): HeuristicRes
   ].sort((a, b) => Math.abs(b.contribution) - Math.abs(a.contribution)).slice(0, 8);
 
   let decision_precaution: string;
-  if (probability >= 0.78 && aiEvidence >= 0.55) {
+  if (probability >= 0.78 && aiEvidence >= 0.55 && fused.agreement >= 0.62 && fused.activeSignals >= 5) {
     decision_precaution = "Plusieurs indices indépendants sont compatibles avec une génération automatisée. Résultat à interpréter avec prudence.";
   } else if (probability >= 0.55) {
     decision_precaution = "Quelques indices sont présents, mais ils ne suffisent pas à conclure seuls. Une vérification humaine reste recommandée.";
