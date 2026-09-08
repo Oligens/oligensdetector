@@ -1,5 +1,6 @@
 import { analyzeCalibrated } from "../detector/calibratedDetector";
 import { countWords } from "../detector/heuristicEngine";
+import { evaluateRewrite, anchorCoverage, protectedTermCoverage, lexicalNovelty } from "../ai/innovationLayer";
 import type { HumanizeOutcome, HumanizerConfig, HumanizerProgress, HumanizerReport, IterationAnomaly, IterationRecord } from "./humanizerUltimate";
 
 const DEFAULTS: HumanizerConfig = {
@@ -213,8 +214,33 @@ function candidateScore(original: string, candidate: string): number {
   const result = analyzeCalibrated(candidate);
   const originalWords = countWords(original);
   const candidateWords = countWords(candidate);
-  const lengthPenalty = Math.min(0.18, Math.abs(candidateWords - originalWords) / Math.max(1, originalWords) * 0.5);
-  return result.probabilite_IA + lengthPenalty;
+  const quality = evaluateRewrite(original, candidate);
+  const anchors = anchorCoverage(original, candidate);
+  const terms = protectedTermCoverage(original, candidate);
+  const novelty = lexicalNovelty(original, candidate);
+
+  // Humanization is a writing-quality operation, not a race toward 0%.
+  // Prefer meaningful stylistic change while strongly protecting factual
+  // anchors and proper terms.
+  const lengthPenalty = Math.min(
+    0.12,
+    Math.abs(candidateWords - originalWords) / Math.max(1, originalWords) * 0.35,
+  );
+  const tooClosePenalty = quality.changeRatio < 0.018 ? 0.22 : 0;
+  const overRewritePenalty = quality.changeRatio > 0.68 ? 0.18 : 0;
+  const protectionPenalty = (1 - anchors) * 0.55 + (1 - terms) * 0.30;
+  const noveltyPenalty = novelty > 0.42 ? (novelty - 0.42) * 0.30 : 0;
+  const qualityBonus = (1 - quality.qualityScore) * 0.18;
+
+  return (
+    result.probabilite_IA +
+    lengthPenalty +
+    tooClosePenalty +
+    overRewritePenalty +
+    protectionPenalty +
+    noveltyPenalty +
+    qualityBonus
+  );
 }
 
 export const enhancedHumanizerV2 = {
@@ -267,8 +293,21 @@ export const enhancedHumanizerV2 = {
 
       const scored = candidates
         .filter((candidate) => candidate.length > 0)
-        .map((candidate) => ({ candidate, score: candidateScore(original, candidate) }))
-        .sort((a, b) => a.score - b.score);
+        .map((candidate) => {
+          const quality = evaluateRewrite(current, candidate);
+          return {
+            candidate,
+            score: candidateScore(original, candidate),
+            changed: quality.changed,
+            quality: quality.qualityScore,
+          };
+        })
+        .sort((a, b) => {
+          // First preference: a safe, real rewrite. Second: quality/score.
+          if (a.changed !== b.changed) return a.changed ? -1 : 1;
+          return a.score - b.score;
+        });
+
       const selected = scored[0]?.candidate ?? current;
       const selectedResult = analyzeCalibrated(selected);
       current = selected;
@@ -279,8 +318,14 @@ export const enhancedHumanizerV2 = {
         bestScore = currentScore;
       }
       if (i === passes && best === original) {
-        best = selected;
-        bestScore = currentScore;
+        const changedCandidate = scored.find((item) => item.changed)?.candidate;
+        if (changedCandidate && changedCandidate !== original) {
+          best = changedCandidate;
+          bestScore = analyzeCalibrated(changedCandidate).probabilite_IA;
+        } else {
+          best = selected;
+          bestScore = currentScore;
+        }
       }
 
       await new Promise<void>((resolve) => {
