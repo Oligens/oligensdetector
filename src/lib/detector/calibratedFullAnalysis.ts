@@ -8,12 +8,16 @@ export function runCalibratedFullAnalysis(text: string, options: RunOptions = {}
   const words = countWords(text);
   const agents = runScanAgents(text, calibrated.features);
 
-  // The specialist ensemble is a bounded correction layer. It can refine the
-  // calibrated result, but it cannot turn a short/uncertain document into a
-  // strong conclusion by itself.
-  const evidenceGate = Math.min(1, agents.confidence * agents.consensus);
-  const agentCorrection = (agents.score - 0.5) * 0.16 * evidenceGate;
+  // Specialist agents are deliberately conservative: generic rhythm/lexical
+  // traits cannot add a large probability by themselves. A correction is
+  // allowed only when at least three agents independently agree strongly.
+  const strongAgents = agents.agents.filter(a => a.confidence >= 0.40 && a.score >= 0.70).length;
+  const evidenceGate = strongAgents >= 3
+    ? Math.min(1, agents.confidence * agents.consensus)
+    : 0;
+  const agentCorrection = (agents.score - 0.5) * 0.10 * evidenceGate;
   const probability = Math.max(0, Math.min(1, calibrated.probabilite_IA + agentCorrection));
+
   const uncertainty = calibrated.intervalle_confiance_95[1] - calibrated.probabilite_IA;
   const halfWidth = Math.max(0.08, Math.min(0.24, uncertainty));
   const intervalle_confiance_95: [number, number] = [
@@ -23,11 +27,11 @@ export function runCalibratedFullAnalysis(text: string, options: RunOptions = {}
 
   const report = [...calibrated.rapport_detaille];
   for (const agent of agents.agents) {
-    if (agent.confidence >= 0.35 && agent.score >= 0.55) {
+    if (agent.confidence >= 0.40 && agent.score >= 0.70) {
       report.push({
-        nom: `Agent ${agent.agent} — ${agent.reason}`,
+        nom: "Agent " + agent.agent + " — " + agent.reason,
         z_score: agent.score,
-        contribution: (agent.score - 0.5) * 0.08,
+        contribution: (agent.score - 0.5) * 0.05,
       });
     }
   }
