@@ -21,12 +21,13 @@ function validateSignature(ext: string, bytes: Uint8Array): void {
 }
 
 async function extractPdf(file: File, onPage?: (page: number, total: number) => void): Promise<string> {
+  const pdfjsLib = await import("pdfjs-dist");
   if (!pdfConfigured) {
-    const pdfjsLib = await import("pdfjs-dist");
     const workerModule = await import("pdfjs-dist/build/pdf.worker.min.mjs?url");
     pdfjsLib.GlobalWorkerOptions.workerSrc = workerModule.default;
     pdfConfigured = true;
   }
+
   const buffer = await file.arrayBuffer();
   validateSignature("pdf", new Uint8Array(buffer));
   const task = pdfjsLib.getDocument({ data: new Uint8Array(buffer), useWorkerFetch: true });
@@ -37,8 +38,10 @@ async function extractPdf(file: File, onPage?: (page: number, total: number) => 
       onPage?.(p, doc.numPages);
       const page = await doc.getPage(p);
       const content = await page.getTextContent();
-      out += content.items.map((it) => (it as { str?: string }).str ?? "").join(" ") + "\n\n";
-      if (p % 4 === 0) await new Promise((resolve) => window.setTimeout(resolve, 0));
+      out += content.items
+        .map((it: { str?: string }) => it.str ?? "")
+        .join(" ") + "\n\n";
+      if (p % 4 === 0) await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
     }
     return out.trim();
   } finally {
