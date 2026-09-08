@@ -1,8 +1,8 @@
 import { humanizeText } from "./humanizerRunner";
 import type { HumanizerConfig, HumanizerProgress, HumanizerReport } from "./humanizerUltimate";
 
-// Compatibility layer: the humanizer is fully local and no longer depends on
-// a remote provider or an embedded credential.
+// Compatibility layer: the active implementation is local. "api" remains
+// part of the flow type so older UI state/callback code stays type-safe.
 export const QWEN_CONFIG = {
   baseUrl: "",
   apiKey: "",
@@ -13,7 +13,7 @@ export const QWEN_CONFIG = {
 
 export const QWEN_SYSTEM_PROMPT = "";
 export const HYBRID_API_TIMEOUT_MS = 0;
-export type HybridFlow = "local";
+export type HybridFlow = "local" | "api";
 
 export interface HybridCallbacks {
   onPhase?: (label: string) => void;
@@ -40,8 +40,6 @@ export async function humanizeHybrid(
   cb.onPhase?.("Moteur Oligens Natural Engine — analyse stylistique…");
   cb.onFlowResolved?.("local");
 
-  // humanizeText already performs the initial detector pass and carries the
-  // initial probability in its report. Avoid running the detector twice.
   const local = await humanizeText(
     text,
     { ...config, langue: config.langue ?? "mixte" },
