@@ -351,7 +351,7 @@ export default function HumanizerPage() {
   const [maxIter, setMaxIter] = useState(12);
 
   const [running, setRunning] = useState(false);
-  const [flow, setFlow] = useState<HybridFlow>("api");
+  const [flow, setFlow] = useState<HybridFlow>("local");
   const [phaseLabel, setPhaseLabel] = useState("Connexion au LLM AgweStream…");
   const [streaming, setStreaming] = useState(false);
   const [liveText, setLiveText] = useState("");
@@ -432,7 +432,7 @@ export default function HumanizerPage() {
     if (!text || countWords(text) < 100 || running) return;
 
     setRunning(true);
-    setFlow("api");
+    setFlow("local");
     setOutput(null);
     setReport(null);
     setStreaming(false);
@@ -471,10 +471,8 @@ export default function HumanizerPage() {
 
       const finalPct = Math.round(outcome.report.proba_finale * 1000) / 10;
       toast(
-        outcome.flow === "api"
-          ? finalPct < 5 ? "Neutralisation réussie" : "Humanisation terminée"
-          : "Humanisation terminée (repli local)",
-        `Probabilité IA → ${finalPct.toLocaleString("fr-FR")} % · ${outcome.flow === "api" ? `${QWEN_CONFIG.model} · ${fmtInt(outcome.apiDurationMs ?? 0)} ms` : `${outcome.report.iterations_realisees} passes locales`}.`
+        "Humanisation terminée",
+        `Probabilité IA → ${finalPct.toLocaleString("fr-FR")} % · ${outcome.report.iterations_realisees} passes locales.`
       );
     } catch (err) {
       console.error("Erreur lors de l'humanisation hybride :", err);
