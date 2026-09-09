@@ -3,7 +3,7 @@ import type { HumanizerConfig, HumanizerProgress, HumanizerReport } from "./huma
 
 type WorkerRequest =
   | { type: "ping" }
-  | { id: number; text: string; config?: Partial<HumanizerConfig> };
+  | { id: number; type?: "humanize"; text: string; config?: Partial<HumanizerConfig> };
 type WorkerResponse =
   | { type: "pong" }
   | { id: number; type: "progress"; progress: HumanizerProgress }
