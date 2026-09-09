@@ -2,8 +2,21 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import jwt from "jsonwebtoken";
 import { Pool } from "pg";
 const COOKIE = "oligens_session";
+function databaseUrl() {
+  const value = process.env.DATABASE_URL?.trim();
+  if (!value) throw new Error("DATABASE_URL is not configured.");
+  try {
+    const url = new URL(value);
+    const sslmode = url.searchParams.get("sslmode");
+    if (sslmode && sslmode !== "verify-full") url.searchParams.set("sslmode", "verify-full");
+    return url.toString();
+  } catch {
+    return value;
+  }
+}
+
 let pool: Pool | undefined;
-function getPool(){if(pool)return pool;const connectionString=process.env.DATABASE_URL?.trim();if(!connectionString)throw new Error("DATABASE_URL is not configured.");pool=new Pool({connectionString,max:5,idleTimeoutMillis:10_000,connectionTimeoutMillis:10_000,ssl:{rejectUnauthorized:false},application_name:"oligens-detector-settings"});return pool;}
+function getPool(){if(pool)return pool;const connectionString=databaseUrl();if(!connectionString)throw new Error("DATABASE_URL is not configured.");pool=new Pool({connectionString,max:5,idleTimeoutMillis:10_000,connectionTimeoutMillis:10_000,ssl:{rejectUnauthorized:true},application_name:"oligens-detector-settings"});return pool;}
 function token(req:VercelRequest){return(req.headers.cookie??"").split(";").map(v=>v.trim()).find(v=>v.startsWith(`${COOKIE}=`))?.slice(COOKIE.length+1);}
 async function userId(req:VercelRequest){const secret=process.env.AUTH_SECRET?.trim();if(!secret||secret.length<32)throw new Error("AUTH_SECRET is not configured.");const raw=token(req);if(!raw)return null;try{const payload=jwt.verify(raw,secret,{issuer:"oligens-detector"}) as jwt.JwtPayload;return typeof payload.sub==="string"?payload.sub:null;}catch{return null;}}
 const defaults={alert_threshold:50,min_words:30,worker_threshold:10000,auto_flag:true,archive_90_days:true,auto_purge:true,api_key:"",endpoint:""};
