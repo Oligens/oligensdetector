@@ -1,7 +1,21 @@
 import type { VercelRequest,VercelResponse } from "@vercel/node";
 import jwt from "jsonwebtoken";
 import { Pool } from "pg";
-const COOKIE="oligens_session";let pool:Pool|undefined;
+const COOKIE="oligens_session";
+function databaseUrl() {
+  const value = process.env.DATABASE_URL?.trim();
+  if (!value) throw new Error("DATABASE_URL is not configured.");
+  try {
+    const url = new URL(value);
+    const sslmode = url.searchParams.get("sslmode");
+    if (sslmode && sslmode !== "verify-full") url.searchParams.set("sslmode", "verify-full");
+    return url.toString();
+  } catch {
+    return value;
+  }
+}
+
+let pool:Pool|undefined;
 function db(){if(pool)return pool;const connectionString=databaseUrl();if(!connectionString)throw new Error("DATABASE_URL is not configured.");pool=new Pool({connectionString,max:5,idleTimeoutMillis:10_000,connectionTimeoutMillis:10_000,ssl:{rejectUnauthorized:true},application_name:"oligens-detector-usage"});return pool;}
 function uid(req:VercelRequest){const secret=process.env.AUTH_SECRET?.trim();if(!secret||secret.length<32)throw new Error("AUTH_SECRET is not configured.");const raw=(req.headers.cookie??"").split(";").map(v=>v.trim()).find(v=>v.startsWith(`${COOKIE}=`))?.slice(COOKIE.length+1);if(!raw)return null;try{const p=jwt.verify(raw,secret,{issuer:"oligens-detector"}) as jwt.JwtPayload;return typeof p.sub==="string"?p.sub:null;}catch{return null;}}
 export default async function handler(req:VercelRequest,res:VercelResponse){if(req.method!=="POST")return res.status(405).json({error:"Méthode non autorisée."});try{const userId=uid(req);if(!userId)return res.status(401).json({allowed:false,reason:"AUTH_REQUIRED",message:"Connexion requise."});const words=Number((req.body as Record<string,unknown>|undefined)?.words??0);if(!Number.isInteger(words)||words<0)return res.status(400).json({allowed:false,reason:"INVALID_WORD_COUNT",message:"Nombre de mots invalide."});const p=db();const client=await p.connect();try{await client.query("BEGIN");let sub=(await client.query(`SELECT id,plan,status,expires_at FROM subscriptions WHERE user_id=$1 FOR UPDATE`,[userId])).rows[0];if(!sub){const inserted=await client.query(`INSERT INTO subscriptions(id,user_id,plan,status,billing_period,max_words_per_analysis,analyses_per_day,unlimited_database,advanced_reports,advanced_statistics,advanced_history) VALUES(gen_random_uuid()::TEXT,$1,'free','active','monthly',2500,NULL,FALSE,FALSE,FALSE,FALSE) RETURNING id,plan,status,expires_at`,[userId]);sub=inserted.rows[0];}
