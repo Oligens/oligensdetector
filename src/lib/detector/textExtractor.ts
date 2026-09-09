@@ -21,16 +21,16 @@ function validateSignature(ext: string, bytes: Uint8Array): void {
 }
 
 async function extractPdf(file: File, onPage?: (page: number, total: number) => void): Promise<string> {
-  const pdfjsLib = await import("pdfjs-dist");
+  const pdfjs = await import("pdfjs-dist");
   if (!pdfConfigured) {
     const workerModule = await import("pdfjs-dist/build/pdf.worker.min.mjs?url");
-    pdfjsLib.GlobalWorkerOptions.workerSrc = workerModule.default;
+    pdfjs.GlobalWorkerOptions.workerSrc = workerModule.default;
     pdfConfigured = true;
   }
 
   const buffer = await file.arrayBuffer();
   validateSignature("pdf", new Uint8Array(buffer));
-  const task = pdfjsLib.getDocument({ data: new Uint8Array(buffer), useWorkerFetch: true });
+  const task = pdfjs.getDocument({ data: new Uint8Array(buffer), useWorkerFetch: true });
   try {
     const doc = await task.promise;
     let out = "";
