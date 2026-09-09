@@ -39,7 +39,7 @@ async function extractPdf(file: File, onPage?: (page: number, total: number) => 
       const page = await doc.getPage(p);
       const content = await page.getTextContent();
       out += content.items
-        .map((it: { str?: string }) => it.str ?? "")
+        .map((it) => ("str" in it ? it.str : "") ?? "")
         .join(" ") + "\n\n";
       if (p % 4 === 0) await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
     }
