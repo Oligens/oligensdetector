@@ -1,4 +1,17 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
+function databaseUrl() {
+  const value = process.env.DATABASE_URL?.trim();
+  if (!value) throw new Error("DATABASE_URL is not configured.");
+  try {
+    const url = new URL(value);
+    const sslmode = url.searchParams.get("sslmode");
+    if (sslmode && sslmode !== "verify-full") url.searchParams.set("sslmode", "verify-full");
+    return url.toString();
+  } catch {
+    return value;
+  }
+}
+
 import crypto from "crypto";
 import { Pool } from "pg";
 
@@ -14,7 +27,7 @@ const PLAN_BY_ZAKAPRO_ID: Record<string, { plan: "flash"|"pro"|"gold"; period: "
 };
 
 let pool: Pool | undefined;
-function db() { if (pool) return pool; const url=process.env.DATABASE_URL?.trim(); if(!url) throw new Error("DATABASE_URL is not configured."); pool=new Pool({connectionString:url,max:5,idleTimeoutMillis:10000,connectionTimeoutMillis:10000,ssl:{rejectUnauthorized:false},application_name:"oligens-zakapro-webhook"}); return pool; }
+function db() { if (pool) return pool; const url=databaseUrl(); if(!url) throw new Error("DATABASE_URL is not configured."); pool=new Pool({connectionString:url,max:5,idleTimeoutMillis:10000,connectionTimeoutMillis:10000,ssl:{rejectUnauthorized:true},application_name:"oligens-zakapro-webhook"}); return pool; }
 async function rawBody(req: VercelRequest): Promise<string> { if(Buffer.isBuffer(req.body)) return req.body.toString("utf8"); if(typeof req.body==="string") return req.body; const chunks:Buffer[]=[]; for await(const chunk of req as any) chunks.push(Buffer.isBuffer(chunk)?chunk:Buffer.from(chunk)); return Buffer.concat(chunks).toString("utf8"); }
 function signatureValid(raw:string,req:VercelRequest){ const secret=(process.env.ZAKAPRO_APP_SECRET||process.env.ZAKAPRO_WEBHOOK_SECRET||"").trim(); if(!secret)return false; const received=String(req.headers["x-zakapro-signature"]||req.headers["zakapro-signature"]||"").trim(); const expected="sha256="+crypto.createHmac("sha256",secret).update(raw,"utf8").digest("hex"); const a=Buffer.from(received),b=Buffer.from(expected); return a.length===b.length&&crypto.timingSafeEqual(a,b); }
 function pick(o:Record<string,any>,...keys:string[]){for(const k of keys)if(o[k]!==undefined&&o[k]!==null&&o[k]!=="")return o[k];return undefined;}
