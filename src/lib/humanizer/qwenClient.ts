@@ -13,7 +13,7 @@ export const QWEN_CONFIG = {
 
 export const QWEN_SYSTEM_PROMPT = "";
 export const HYBRID_API_TIMEOUT_MS = 0;
-export type HybridFlow = "local" | "api";
+export type HybridFlow = "local";
 
 export interface HybridCallbacks {
   onPhase?: (label: string) => void;
