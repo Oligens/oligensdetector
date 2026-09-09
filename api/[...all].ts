@@ -12,10 +12,21 @@ type AuthUser = { id: string; email: string; email_verified: boolean };
 type SubscriptionRow = { plan: "free" | "flash" | "pro" | "gold"; status: "active" | "expired" | "cancelled" | "pending"; billing_period: "monthly" | "yearly" | "lifetime" | null; expires_at: string | null; started_at: string };
 
 let pool: Pool | undefined;
-function dbUrl() { const value = process.env.DATABASE_URL?.trim(); if (!value) throw new Error("DATABASE_URL is not configured."); return value; }
+function dbUrl() {
+  const value = process.env.DATABASE_URL?.trim();
+  if (!value) throw new Error("DATABASE_URL is not configured.");
+  try {
+    const url = new URL(value);
+    const sslmode = url.searchParams.get("sslmode");
+    if (sslmode && sslmode !== "verify-full") url.searchParams.set("sslmode", "verify-full");
+    return url.toString();
+  } catch {
+    return value;
+  }
+}
 function getPool() {
   if (pool) return pool;
-  pool = new Pool({ connectionString: dbUrl(), max: 5, idleTimeoutMillis: 10_000, connectionTimeoutMillis: 10_000, ssl: { rejectUnauthorized: false }, application_name: "oligens-detector" });
+  pool = new Pool({ connectionString: dbUrl(), max: 5, idleTimeoutMillis: 10_000, connectionTimeoutMillis: 10_000, ssl: { rejectUnauthorized: true }, application_name: "oligens-detector" });
   pool.on("error", e => console.error("[database] idle client error", e));
   return pool;
 }
