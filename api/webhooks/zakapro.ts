@@ -1,68 +1,12 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-function databaseUrl() {
-  const value = process.env.DATABASE_URL?.trim();
-  if (!value) throw new Error("DATABASE_URL is not configured.");
-  try {
-    const url = new URL(value);
-    const sslmode = url.searchParams.get("sslmode");
-    if (sslmode && sslmode !== "verify-full") url.searchParams.set("sslmode", "verify-full");
-    return url.toString();
-  } catch {
-    return value;
-  }
-}
-
-import crypto from "crypto";
-import { Pool } from "pg";
-
-export const config = { api: { bodyParser: false } };
-export const runtime = "nodejs";
-
-const PLAN_BY_ZAKAPRO_ID: Record<string, { plan: "flash"|"pro"|"gold"; period: "monthly"|"yearly" }> = {
-  plan_tjmlghni: { plan: "flash", period: "monthly" },
-  plan_5or3mqd7: { plan: "pro", period: "monthly" },
-  plan_m1axkkf3: { plan: "pro", period: "yearly" },
-  plan_m798n6nu: { plan: "gold", period: "monthly" },
-  plan_3j3nkzqs: { plan: "gold", period: "yearly" },
+function databaseUrl() { const value=process.env.DATABASE_URL?.trim(); if(!value)throw new Error("DATABASE_URL is not configured."); try{const url=new URL(value);const sslmode=url.searchParams.get("sslmode");if(sslmode&&sslmode!=="verify-full")url.searchParams.set("sslmode","verify-full");return url.toString();}catch{return value;} }
+import crypto from "crypto"; import { Pool } from "pg";
+export const config={api:{bodyParser:false}}; export const runtime="nodejs";
+const PLAN_BY_ZAKAPRO_ID:Record<string,{plan:"flash"|"pro"|"gold";period:"monthly"|"yearly"}>={
+ plan_izygpex6:{plan:"flash",period:"monthly"},plan_3ep9gvnq:{plan:"pro",period:"monthly"},plan_mldfdizu:{plan:"pro",period:"yearly"},plan_5lt2d1w9:{plan:"gold",period:"monthly"},plan_3j3nkzqs:{plan:"gold",period:"yearly"},
 };
-
-let pool: Pool | undefined;
-function db() { if (pool) return pool; const url=databaseUrl(); if(!url) throw new Error("DATABASE_URL is not configured."); pool=new Pool({connectionString:url,max:5,idleTimeoutMillis:10000,connectionTimeoutMillis:10000,ssl:{rejectUnauthorized:true},application_name:"oligens-zakapro-webhook"}); return pool; }
-async function rawBody(req: VercelRequest): Promise<string> { if(Buffer.isBuffer(req.body)) return req.body.toString("utf8"); if(typeof req.body==="string") return req.body; const chunks:Buffer[]=[]; for await(const chunk of req as any) chunks.push(Buffer.isBuffer(chunk)?chunk:Buffer.from(chunk)); return Buffer.concat(chunks).toString("utf8"); }
-function signatureValid(raw:string,req:VercelRequest){ const secret=(process.env.ZAKAPRO_APP_SECRET||process.env.ZAKAPRO_WEBHOOK_SECRET||"").trim(); if(!secret)return false; const received=String(req.headers["x-zakapro-signature"]||req.headers["zakapro-signature"]||"").trim(); const expected="sha256="+crypto.createHmac("sha256",secret).update(raw,"utf8").digest("hex"); const a=Buffer.from(received),b=Buffer.from(expected); return a.length===b.length&&crypto.timingSafeEqual(a,b); }
-function pick(o:Record<string,any>,...keys:string[]){for(const k of keys)if(o[k]!==undefined&&o[k]!==null&&o[k]!=="")return o[k];return undefined;}
-function amountNumber(v:unknown){const n=Number(v);return Number.isFinite(n)?Math.round(n*100)/100:NaN;}
-
-export default async function handler(req:VercelRequest,res:VercelResponse){
- if(req.method!=="POST")return res.status(405).json({error:"Méthode non autorisée."});
- try{
-  const raw=await rawBody(req); if(!signatureValid(raw,req))return res.status(401).json({error:"Signature ZakaPro invalide."});
-  const event=JSON.parse(raw) as Record<string,any>;
-  const eventName=String(pick(event,"event","type","event_type")||"").toLowerCase();
-  const status=String(pick(event,"status","payment_status")||(eventName==="subscription.activated"?"success":"")).toLowerCase();
-  const reference=String(pick(event,"reference","transactionId","transaction_id","payment_reference")||"").trim();
-  const planId=String(pick(event,"planId","plan_id","plan")||"").trim();
-  const phone=String(pick(event,"customer_phone","customerPhone","phone","phone_number")||"").replace(/[\s-]/g,"").trim();
-  const amount=amountNumber(pick(event,"amount","amountHTG","amount_htg"));
-  const mapped=PLAN_BY_ZAKAPRO_ID[planId];
-  const successful=["success","paid","completed","approved","confirmed","activated"].includes(status)||eventName==="subscription.activated";
-  if(!reference||!mapped)return res.status(400).json({error:"Référence ou plan ZakaPro manquant/inconnu."});
-  const client=await db().connect();
-  try{
-   await client.query("BEGIN");
-   const existing=await client.query<any>(`SELECT id,user_id,subscription_id,plan,billing_period,amount,status,phone_number FROM payments WHERE provider_transaction_id=$1 OR ($2<>'' AND status IN ('pending','processing') AND plan=$3 AND billing_period=$4 AND phone_number=$2) ORDER BY created_at DESC LIMIT 1 FOR UPDATE`,[reference,phone,mapped.plan,mapped.period]);
-   const payment=existing.rows[0]; if(!payment){await client.query("ROLLBACK");return res.status(404).json({error:"Aucun paiement Oligens en attente ne correspond à cette transaction."});}
-   if(successful){
-    const expected=amountNumber(payment.amount); if(!Number.isFinite(amount)||Math.abs(amount-expected)>0.001){await client.query(`UPDATE payments SET status='failed',provider_response=$2::jsonb,webhook_received_at=NOW() WHERE id=$1`,[payment.id,raw]);await client.query("COMMIT");return res.status(422).json({error:"Montant reçu différent du montant attendu. Abonnement non activé.",code:"AMOUNT_MISMATCH"});}
-    await client.query(`UPDATE payments SET status='paid',provider_transaction_id=$2,provider_response=$3::jsonb,webhook_received_at=NOW(),paid_at=COALESCE(paid_at,NOW()) WHERE id=$1`,[payment.id,reference,raw]);
-    const interval=mapped.period==="monthly"?"1 month":"1 year";
-    const sub=await client.query<{id:string}>(`UPDATE subscriptions SET plan=$2,status='active',billing_period=$3,started_at=NOW(),expires_at=NOW()+$4::interval,updated_at=NOW() WHERE user_id=$1 RETURNING id`,[payment.user_id,mapped.plan,mapped.period,interval]);
-    if(!sub.rows[0])throw new Error("Abonnement utilisateur introuvable.");
-    await client.query("UPDATE payments SET subscription_id=$2 WHERE id=$1",[payment.id,sub.rows[0].id]);
-   }else if(["failed","cancelled","expired","refunded"].includes(status)){
-    await client.query(`UPDATE payments SET status=$2,provider_transaction_id=COALESCE(provider_transaction_id,$3),provider_response=$4::jsonb,webhook_received_at=NOW() WHERE id=$1`,[payment.id,status,reference,raw]);
-   }else{await client.query("ROLLBACK");return res.status(202).json({received:true,ignored:true,status});}
-   await client.query("COMMIT"); return res.status(200).json({received:true,activated:successful,reference});
-  }catch(e){await client.query("ROLLBACK");throw e;}finally{client.release();}
- }catch(error){console.error("[zakapro/webhook]",error);return res.status(503).json({error:"Webhook temporairement indisponible."});}
-}
+let pool:Pool|undefined; function db(){if(pool)return pool;pool=new Pool({connectionString:databaseUrl(),max:5,idleTimeoutMillis:10000,connectionTimeoutMillis:10000,ssl:{rejectUnauthorized:true},application_name:"oligens-zakapro-webhook"});return pool;}
+async function rawBody(req:VercelRequest):Promise<string>{if(Buffer.isBuffer(req.body))return req.body.toString("utf8");if(typeof req.body==="string")return req.body;const chunks:Buffer[]=[];for await(const chunk of req as any)chunks.push(Buffer.isBuffer(chunk)?chunk:Buffer.from(chunk));return Buffer.concat(chunks).toString("utf8");}
+function signatureValid(raw:string,req:VercelRequest){const secret=(process.env.ZAKAPRO_APP_SECRET||process.env.ZAKAPRO_WEBHOOK_SECRET||"").trim();if(!secret)return false;const received=String(req.headers["x-zakapro-signature"]||req.headers["zakapro-signature"]||"").trim().replace(/^sha256=/i,"");const expected=crypto.createHmac("sha256",secret).update(raw,"utf8").digest("hex");const a=Buffer.from(received,"hex"),b=Buffer.from(expected,"hex");return a.length===b.length&&a.length>0&&crypto.timingSafeEqual(a,b);}
+function pick(o:Record<string,any>,...keys:string[]){for(const k of keys)if(o[k]!==undefined&&o[k]!==null&&o[k]!=="")return o[k];return undefined;} function amountNumber(v:unknown){const n=Number(v);return Number.isFinite(n)?Math.round(n*100)/100:NaN;}
+export default async function handler(req:VercelRequest,res:VercelResponse){if(req.method!=="POST")return res.status(405).json({error:"Méthode non autorisée."});try{const raw=await rawBody(req);if(!signatureValid(raw,req))return res.status(401).json({error:"Signature ZakaPro invalide."});const event=JSON.parse(raw) as Record<string,any>;const eventName=String(pick(event,"event","type","event_type")||"").toLowerCase();const status=String(pick(event,"status","payment_status")||(eventName==="subscription.activated"?"success":"")).toLowerCase();const reference=String(pick(event,"reference","transactionId","transaction_id","payment_reference")||"").trim();const planObject=event.plan&&typeof event.plan==="object"?event.plan:{};const planId=String(pick(event,"planId","plan_id")||pick(planObject,"id")||"").trim();const phone=String(pick(event,"customer_phone","customerPhone","phone","phone_number")||pick(event.customer||{},"phone")||"").replace(/[\s-]/g,"").trim();const amount=amountNumber(pick(event,"amount","amountHTG","amount_htg")||pick(event,"amountReceived"));const mapped=PLAN_BY_ZAKAPRO_ID[planId];const successful=["success","paid","completed","approved","confirmed","activated"].includes(status)||eventName==="subscription.activated";if(!reference||!mapped)return res.status(400).json({error:"Référence ou plan ZakaPro manquant/inconnu."});const client=await db().connect();try{await client.query("BEGIN");const existing=await client.query<any>(`SELECT id,user_id,subscription_id,plan,billing_period,amount,status,phone_number FROM payments WHERE provider_transaction_id=$1 OR ($2<>'' AND status IN ('pending','processing') AND plan=$3 AND billing_period=$4 AND phone_number=$2) ORDER BY created_at DESC LIMIT 1 FOR UPDATE`,[reference,phone,mapped.plan,mapped.period]);const payment=existing.rows[0];if(!payment){await client.query("ROLLBACK");return res.status(404).json({error:"Aucun paiement Oligens en attente ne correspond à cette transaction."});}if(successful){const expected=amountNumber(payment.amount);if(!Number.isFinite(amount)||Math.abs(amount-expected)>0.001){await client.query(`UPDATE payments SET status='failed',provider_response=$2::jsonb,webhook_received_at=NOW() WHERE id=$1`,[payment.id,raw]);await client.query("COMMIT");return res.status(422).json({error:"Montant reçu différent du montant attendu. Abonnement non activé.",code:"AMOUNT_MISMATCH"});}await client.query(`UPDATE payments SET status='paid',provider_transaction_id=$2,provider_response=$3::jsonb,webhook_received_at=NOW(),paid_at=COALESCE(paid_at,NOW()) WHERE id=$1`,[payment.id,reference,raw]);const interval=mapped.period==="monthly"?"1 month":"1 year";const sub=await client.query<{id:string}>(`UPDATE subscriptions SET plan=$2,status='active',billing_period=$3,started_at=NOW(),expires_at=NOW()+$4::interval,updated_at=NOW() WHERE user_id=$1 RETURNING id`,[payment.user_id,mapped.plan,mapped.period,interval]);if(!sub.rows[0])throw new Error("Abonnement utilisateur introuvable.");await client.query("UPDATE payments SET subscription_id=$2 WHERE id=$1",[payment.id,sub.rows[0].id]);}else if(["failed","cancelled","expired","refunded"].includes(status)){await client.query(`UPDATE payments SET status=$2,provider_transaction_id=COALESCE(provider_transaction_id,$3),provider_response=$4::jsonb,webhook_received_at=NOW() WHERE id=$1`,[payment.id,status,reference,raw]);}else{await client.query("ROLLBACK");return res.status(202).json({received:true,ignored:true,status});}await client.query("COMMIT");return res.status(200).json({received:true,activated:successful,reference,planId,amount});}catch(e){await client.query("ROLLBACK");throw e;}finally{client.release();}}catch(error){console.error("[zakapro/webhook]",error);return res.status(503).json({error:"Webhook temporairement indisponible."});}}
