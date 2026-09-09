@@ -4,18 +4,30 @@ import jwt from "jsonwebtoken";
 import { Pool } from "pg";
 
 const COOKIE = "oligens_session";
+function databaseUrl() {
+  const value = process.env.DATABASE_URL?.trim();
+  if (!value) throw new Error("DATABASE_URL is not configured.");
+  try {
+    const url = new URL(value);
+    const sslmode = url.searchParams.get("sslmode");
+    if (sslmode && sslmode !== "verify-full") url.searchParams.set("sslmode", "verify-full");
+    return url.toString();
+  } catch {
+    return value;
+  }
+}
+
 let pool: Pool | undefined;
 
 function getPool() {
   if (pool) return pool;
-  const connectionString = process.env.DATABASE_URL?.trim();
-  if (!connectionString) throw new Error("DATABASE_URL is not configured.");
+  const connectionString = databaseUrl();
   pool = new Pool({
     connectionString,
     max: 5,
     idleTimeoutMillis: 10_000,
     connectionTimeoutMillis: 10_000,
-    ssl: { rejectUnauthorized: false },
+    ssl: { rejectUnauthorized: true },
     application_name: "oligens-detector-auth-signin",
   });
   pool.on("error", (error) => console.error("[auth/signin] database pool error", error));
