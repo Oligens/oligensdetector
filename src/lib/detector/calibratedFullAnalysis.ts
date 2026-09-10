@@ -19,9 +19,21 @@ export function runCalibratedFullAnalysis(text:string,options:RunOptions={}):Ful
   const agentCorrection=(agents.score-.5)*.10*evidenceGate;
   const advancedGate=clamp(olig.confidence*(.55+agents.consensus*.45));
   const advancedCorrection=(olig.score-.5)*.18*advancedGate;
+
+  // Oligens ML is a real component of the final score, not a tiny additive
+  // nudge around 50%. A previous formula could leave a 1-3% result almost
+  // unchanged even when the ML model found strong AI evidence.
   const mlGate=clamp(ml.confidence*.85+ml.coverage*.15);
-  const mlCorrection=(ml.scoreIA-.5)*.20*mlGate;
-  const probability=clamp(calibrated.probabilite_IA+agentCorrection+advancedCorrection+mlCorrection);
+  const mlWeight=.45*mlGate;
+  const mlCorrection=(ml.scoreIA-calibrated.probabilite_IA)*mlWeight;
+
+  let probability=clamp(calibrated.probabilite_IA+agentCorrection+advancedCorrection+mlCorrection);
+
+  // Independent convergence floors. These are deliberately tied to multiple
+  // Oligens signals so a single heuristic cannot force an AI verdict.
+  if(ml.confidence>=.50&&ml.scoreIA>=.80) probability=Math.max(probability,.72);
+  else if(ml.confidence>=.50&&ml.scoreIA>=.67) probability=Math.max(probability,.60);
+  if(ml.mixedText&&ml.confidence>=.50) probability=Math.max(probability,.55);
 
   const uncertainty=calibrated.intervalle_confiance_95[1]-calibrated.probabilite_IA;
   const halfWidth=Math.max(.08,Math.min(.24,uncertainty));
