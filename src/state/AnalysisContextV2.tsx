@@ -1,9 +1,9 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
-import { fmtInt, type GlobalResults, type RecentEntry, type ReportItem } from "../data";
+import { fmtInt, type GlobalResults, type RecentEntry, type ReportItem, type OligensMLResult } from "../data";
 import { analyzeText } from "../lib/detector/analysisRunner";
 import type { FullAnalysisResult } from "../lib/detector/heuristicEngine";
-import type { HumanizerReport } from "../lib/humanizer/humanizerUltimate";
+import { HumanizerReport } from "../lib/humanizer/humanizerUltimate";
 import { prefersReducedMotion } from "../ui";
 import { useAuth } from "./AuthContext";
 
@@ -30,6 +30,7 @@ export function mapAnalysis(a: FullAnalysisResult, name: string): GlobalResults 
   const passages = Math.max(ia >= 35 ? 2 : 0, Math.round(plagiat / 3));
   const top = a.rapport_detaille[0];
   const ciWidth = (a.intervalle_confiance_95[1] - a.intervalle_confiance_95[0]) * 100;
+  const oligensMl = (a as FullAnalysisResult & { oligensMl?: OligensMLResult }).oligensMl;
   return {
     fileName: name, ia, plagiat, refs, human, refsTotal: a.references.total, refsDouteuses: a.references.douteuses, passages,
     summary: `${fmtInt(a.statistiques.mots)} mots, ${fmtInt(a.statistiques.phrases)} phrases et ${fmtInt(a.statistiques.caracteres)} caractères analysés en ${fmtInt(a.processing.durationMs)} ms (${a.processing.mode === "worker" ? "Web Worker dédié" : "exécution directe"}). ${top ? `Facteur dominant : ${top.nom} (z = ${top.z_score >= 0 ? "+" : "−"}${Math.abs(top.z_score).toFixed(2)}). ` : ""}${a.references.total > 0 ? `${a.references.douteuses} référence${a.references.douteuses > 1 ? "s" : ""} sur ${a.references.total} n'${a.references.douteuses > 1 ? "ont" : "a"} pas pu être vérifiée${a.references.douteuses > 1 ? "s" : ""}.` : "Aucune référence bibliographique détectée dans le document."}`,
@@ -37,6 +38,7 @@ export function mapAnalysis(a: FullAnalysisResult, name: string): GlobalResults 
     confidenceInterval: [Math.round(a.intervalle_confiance_95[0] * 100), Math.round(a.intervalle_confiance_95[1] * 100)],
     decision: a.decision_precaution, engine: a.processing, language: a.langue, signatureNote: a.signature.note, topFactors: a.rapport_detaille,
     metrics: { precision: Math.round((ciWidth / 2) * 10) / 10, transitionDensity: Math.round(a.features.tauxTransitionStandard * 10000) / 10, burstiness: Math.round(a.features.burstiness * 100) / 100, mattr: Math.round(a.features.mattr * 100) / 100, originalite: a.features.scoreOriginalite, charEntropy: Math.round(a.features.perplexiteRelative * 100) / 100 },
+    oligensMl,
   };
 }
 
