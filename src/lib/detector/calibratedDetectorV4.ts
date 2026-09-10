@@ -7,9 +7,8 @@ const scale = (v: number, lo: number, hi: number) => clamp((v - lo) / (hi - lo))
 
 /**
  * Oligens Detector V4: evidence-based calibration.
- * This is an estimate of AI-like stylistic evidence, not proof of authorship.
- * Human-like characteristics are supporting evidence, never a reason to force
- * the AI probability to zero.
+ * Human-like characteristics are supporting evidence, never a reason to erase
+ * strong, independent AI-like evidence. 0% is reserved for empty input.
  */
 export function analyzeCalibrated(text: string, genre = "generic"): HeuristicResult & { features: Features } {
   const clean = text.replace(/\s+/g, " ").trim();
@@ -50,36 +49,59 @@ export function analyzeCalibrated(text: string, genre = "generic"): HeuristicRes
     startDiversity * 0.13 + punctuationVariation * 0.07 + originality * 0.18,
   );
 
-  const strongSignals = [
-    template >= 0.30, structural.score >= 0.28, repetition >= 0.68,
-    regularity >= 0.68, similarity >= 0.70, styleUniformity >= 0.70,
+  const signalFlags = [
+    template >= 0.30,
+    structural.score >= 0.28,
+    repetition >= 0.68,
+    regularity >= 0.68,
+    similarity >= 0.70,
+    styleUniformity >= 0.70,
     standardTransitions >= 0.72,
-  ].filter(Boolean).length;
+  ];
+  const strongSignals = signalFlags.filter(Boolean).length;
 
   const formalGenre = /academic|académique|scientific|scientifique|legal|juridique|administratif|administrative|report|rapport/i.test(genre);
   const prior = formalGenre ? 0.035 : 0.045;
 
-  // Human-like signals lower the estimate, but are intentionally bounded.
-  // The previous calibration could subtract enough evidence to collapse every
-  // ambiguous/human-looking document to an exact 0%, which is misleading.
-  const raw = clamp(prior + aiEvidence * 0.92 - humanEvidence * (formalGenre ? 0.34 : 0.38));
-
+  // Base estimate. Human evidence can reduce an estimate, but only after the
+  // independent AI evidence has been measured.
+  const raw = clamp(prior + aiEvidence * 0.92 - humanEvidence * (formalGenre ? 0.30 : 0.32));
   let probability = raw;
-  if (strongSignals === 0) probability = Math.min(probability, 0.18);
-  else if (strongSignals === 1) probability = Math.min(probability, 0.34);
-  else if (strongSignals === 2) probability = Math.min(probability, 0.62);
-  if (template < 0.18 && structural.score < 0.20 && aiEvidence < 0.42) probability = Math.min(probability, 0.28);
 
-  // Human evidence should not create an artificial 0% authorship claim.
-  // Reserve 0% exclusively for an empty/no-text result handled above.
+  // Strong multi-signal convergence is more informative than a single
+  // human-looking characteristic. These floors prevent the previous failure
+  // mode where an actually AI-like document was reported as 1-3% AI.
+  if (strongSignals >= 5 && aiEvidence >= 0.52) probability = Math.max(probability, 0.78);
+  else if (strongSignals >= 4 && aiEvidence >= 0.46) probability = Math.max(probability, 0.68);
+  else if (strongSignals >= 3 && aiEvidence >= 0.40) probability = Math.max(probability, 0.52);
+  else if (strongSignals === 2) probability = Math.min(probability, 0.62);
+  else if (strongSignals === 1) probability = Math.min(probability, 0.34);
+  else probability = Math.min(probability, 0.18);
+
+  if (template < 0.18 && structural.score < 0.20 && aiEvidence < 0.42) {
+    probability = Math.min(probability, 0.28);
+  }
+
   probability = clamp(probability, 0.01, 1);
 
   const length = lengthConfidence(words);
-  const agreement = strongSignals / 7;
+  const agreement = strongSignals / signalFlags.length;
   const confidence = evidenceConfidence(words, agreement, Math.max(1, strongSignals));
   const evidenceStrength = clamp(Math.abs(aiEvidence - humanEvidence) * 1.7 + 0.18);
   const blendedConfidence = clamp(confidence * 0.76 + length * 0.14 + evidenceStrength * 0.10, 0.20, 1);
-  probability = clamp(0.01 + (probability - 0.01) * blendedConfidence, 0.01, 1);
+
+  // Confidence is allowed to reduce uncertain estimates, but never below the
+  // evidence floor established above when several independent AI signals agree.
+  const evidenceFloor = strongSignals >= 5 && aiEvidence >= 0.52
+    ? 0.78
+    : strongSignals >= 4 && aiEvidence >= 0.46
+      ? 0.68
+      : strongSignals >= 3 && aiEvidence >= 0.40
+        ? 0.52
+        : 0.01;
+  probability = strongSignals >= 3
+    ? Math.max(evidenceFloor, 0.01 + (probability - 0.01) * blendedConfidence)
+    : clamp(0.01 + (probability - 0.01) * blendedConfidence, 0.01, 1);
 
   const uncertainty = clamp(0.24 - confidence * 0.14, 0.07, 0.24);
   const intervalle_confiance_95: [number, number] = [clamp(probability - uncertainty), clamp(probability + uncertainty)];
@@ -100,9 +122,9 @@ export function analyzeCalibrated(text: string, genre = "generic"): HeuristicRes
 
   let decision_precaution: string;
   if (probability >= 0.78 && strongSignals >= 4 && confidence >= 0.60) {
-    decision_precaution = "Plusieurs signaux indépendants sont compatibles avec une génération automatisée. Le résultat reste une estimation stylistique.";
+    decision_precaution = "Plusieurs signaux indépendants convergent fortement vers une production automatisée. Le résultat reste une estimation stylistique.";
   } else if (probability >= 0.55 && strongSignals >= 3) {
-    decision_precaution = "Des indices convergents sont présents. Une vérification humaine est recommandée avant toute conclusion.";
+    decision_precaution = "Des indices IA convergents sont présents. Une vérification humaine est recommandée avant toute conclusion.";
   } else if (probability <= 0.25 && humanEvidence >= 0.42) {
     decision_precaution = "Les caractéristiques observées sont surtout compatibles avec une rédaction naturelle. Ce résultat ne constitue pas une preuve d'auteur humain.";
   } else {
