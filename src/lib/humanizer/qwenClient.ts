@@ -11,7 +11,14 @@ export const GEMINI_CONFIG = {
   timeoutMs: 20_000,
 } as const;
 
-export const QWEN_CONFIG = GEMINI_CONFIG;
+// Deprecated compatibility fields: older settings screens still reference these
+// properties. Secrets are intentionally never stored in this client-side config.
+export const QWEN_CONFIG = {
+  ...GEMINI_CONFIG,
+  baseUrl: "",
+  apiKey: "",
+  workspaceId: "",
+} as const;
 export const QWEN_SYSTEM_PROMPT = "";
 export const HYBRID_API_TIMEOUT_MS = GEMINI_CONFIG.timeoutMs;
 export type HybridFlow = "gemini" | "local";
