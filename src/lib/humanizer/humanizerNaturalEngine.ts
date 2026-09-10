@@ -61,9 +61,25 @@ function reshape(text:string,r:()=>number,intensity:number,variant:number){
 }
 
 function fallback(text:string){
-  const swaps:Array<[RegExp,string]>=[[/\bcependant\b/i,"mais"],[/\bnéanmoins\b/i,"pourtant"],[/\bpar conséquent\b/i,"donc"],[/\ben conclusion\b/i,"pour finir"],[/\bdans le cadre de\b/i,"dans"],[/\bil est important de noter que\b/i,"on remarque que"];
-  for(const [re,to] of swaps)if(re.test(text))return normalize(text.replace(re,to));
-  const m=text.match(/[^.!?…]{120,}[.!?…]/);if(m){const i=m[0].indexOf(", ");if(i>35&&i<m[0].length-35)return normalize(text.replace(m[0],m[0].slice(0,i)+". "+m[0].slice(i+2).replace(/^\p{Ll}/u,c=>c.toUpperCase())));}return text;
+  const swaps: Array<[RegExp, string]> = [
+    [/\bcependant\b/i, "mais"],
+    [/\bnéanmoins\b/i, "pourtant"],
+    [/\bpar conséquent\b/i, "donc"],
+    [/\ben conclusion\b/i, "pour finir"],
+    [/\bdans le cadre de\b/i, "dans"],
+    [/\bil est important de noter que\b/i, "on remarque que"],
+  ];
+  for (const [re, to] of swaps) {
+    if (re.test(text)) return normalize(text.replace(re, to));
+  }
+  const m = text.match(/[^.!?…]{120,}[.!?…]/);
+  if (m) {
+    const i = m[0].indexOf(", ");
+    if (i > 35 && i < m[0].length - 35) {
+      return normalize(text.replace(m[0], m[0].slice(0, i) + ". " + m[0].slice(i + 2).replace(/^\p{Ll}/u, c => c.toUpperCase())));
+    }
+  }
+  return text;
 }
 
 function candidateScore(original:string,candidate:string){
@@ -72,8 +88,6 @@ function candidateScore(original:string,candidate:string){
   const protectedTerms=protectedTermCoverage(original,candidate);
   const novelty=Math.min(1,lexicalNovelty(original,candidate)/0.12);
   const change=q.changeRatio;
-  // Selection is based on writing quality and preservation of meaning, not on
-  // trying to drive a detector to a particular score.
   const changeFit = change < 0.06 ? change / 0.06 : change <= 0.32 ? 1 : Math.max(0, 1 - (change - 0.32) / 0.40);
   return q.qualityScore*0.42 + anchors*0.25 + protectedTerms*0.15 + novelty*0.08 + changeFit*0.10;
 }
@@ -94,7 +108,6 @@ export const naturalHumanizer = { async humanize(text:string,config:Partial<Huma
     if(selected)current=selected.c;
     const q=evaluateRewrite(original,current);const preservation=anchorCoverage(original,current)*protectedTermCoverage(original,current);const total=q.qualityScore*preservation;
     if(current!==original&&total>bestScore){best=current;bestScore=total;}
-    // Require a meaningful editorial change before accepting completion.
     if(i>=2&&best!==original&&q.changeRatio>=0.08)break;
     await new Promise<void>(resolve=>{if(typeof requestAnimationFrame==="function")requestAnimationFrame(()=>resolve());else setTimeout(resolve,0);});
   }
