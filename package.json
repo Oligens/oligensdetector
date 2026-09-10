@@ -2,6 +2,9 @@
   "name": "oligens-detector",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": "22.x"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -14,7 +17,7 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@vercel/node": "^5.3.21",
     "bcryptjs": "^3.0.2",
-    "canvas-confetti": "^1.9.3",
+    "canvas-confetti": "^1.9.1",
     "date-fns": "^2.30.0",
     "docx": "^9.7.1",
     "framer-motion": "^11.16.1",
@@ -35,7 +38,6 @@
     "@tailwindcss/vite": "^4.1.7",
     "@types/bcryptjs": "^2.4.6",
     "@types/canvas-confetti": "^1.6.4",
-    "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^22.15.21",
     "@types/nodemailer": "^6.4.17",
     "@types/pg": "^8.23.1",
