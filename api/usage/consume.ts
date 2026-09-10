@@ -1,7 +1,17 @@
-import type { VercelRequest,VercelResponse } from "@vercel/node";
+import type { VercelRequest, VercelResponse } from "@vercel/node";
 import jwt from "jsonwebtoken";
 import { Pool } from "pg";
-const COOKIE="oligens_session";
+
+const COOKIE = "oligens_session";
+
+type QuotaResult = {
+  allowed: boolean;
+  code?: string;
+  maxWords?: number;
+  limit?: number;
+  plan?: string;
+};
+
 function databaseUrl() {
   const value = process.env.DATABASE_URL?.trim();
   if (!value) throw new Error("DATABASE_URL is not configured.");
@@ -15,12 +25,97 @@ function databaseUrl() {
   }
 }
 
-let pool:Pool|undefined;
-function db(){if(pool)return pool;const connectionString=databaseUrl();if(!connectionString)throw new Error("DATABASE_URL is not configured.");pool=new Pool({connectionString,max:5,idleTimeoutMillis:10_000,connectionTimeoutMillis:10_000,ssl:{rejectUnauthorized:true},application_name:"oligens-detector-usage"});return pool;}
-function uid(req:VercelRequest){const secret=process.env.AUTH_SECRET?.trim();if(!secret||secret.length<32)throw new Error("AUTH_SECRET is not configured.");const raw=(req.headers.cookie??"").split(";").map(v=>v.trim()).find(v=>v.startsWith(`${COOKIE}=`))?.slice(COOKIE.length+1);if(!raw)return null;try{const p=jwt.verify(raw,secret,{issuer:"oligens-detector"}) as jwt.JwtPayload;return typeof p.sub==="string"?p.sub:null;}catch{return null;}}
-export default async function handler(req:VercelRequest,res:VercelResponse){if(req.method!=="POST")return res.status(405).json({error:"Méthode non autorisée."});try{const userId=uid(req);if(!userId)return res.status(401).json({allowed:false,reason:"AUTH_REQUIRED",message:"Connexion requise."});const words=Number((req.body as Record<string,unknown>|undefined)?.words??0);if(!Number.isInteger(words)||words<0)return res.status(400).json({allowed:false,reason:"INVALID_WORD_COUNT",message:"Nombre de mots invalide."});const p=db();const client=await p.connect();try{await client.query("BEGIN");let sub=(await client.query(`SELECT id,plan,status,expires_at FROM subscriptions WHERE user_id=$1 FOR UPDATE`,[userId])).rows[0];if(!sub){const inserted=await client.query(`INSERT INTO subscriptions(id,user_id,plan,status,billing_period,max_words_per_analysis,analyses_per_day,unlimited_database,advanced_reports,advanced_statistics,advanced_history) VALUES(gen_random_uuid()::TEXT,$1,'free','active','monthly',2500,NULL,FALSE,FALSE,FALSE,FALSE) RETURNING id,plan,status,expires_at`,[userId]);sub=inserted.rows[0];}
-if(sub.plan!=="free"&&sub.expires_at&&new Date(sub.expires_at)<=new Date()){await client.query(`UPDATE subscriptions SET plan='free',status='active',billing_period='monthly',expires_at=NULL,max_words_per_analysis=2500,analyses_per_day=NULL,unlimited_database=FALSE,advanced_reports=FALSE,advanced_statistics=FALSE,advanced_history=FALSE WHERE id=$1`,[sub.id]);sub={...sub,plan:"free",status:"active",expires_at:null};}
-if(sub.status!=="active"){await client.query("ROLLBACK");return res.status(403).json({allowed:false,reason:"SUBSCRIPTION_INACTIVE",message:"Votre abonnement n'est pas actif."});}
-const maxWords=sub.plan==="free"||sub.plan==="flash"?2500:null;if(maxWords!==null&&words>maxWords){await client.query("ROLLBACK");return res.status(403).json({allowed:false,reason:"WORD_LIMIT",maxWords,message:`Le plan ${sub.plan==='flash'?"Flash / Découverte":"Free"} autorise ${maxWords.toLocaleString("fr-FR")} mots maximum par analyse.`});}
-if(sub.plan==="flash"){const count=await client.query(`SELECT COUNT(*)::int AS n FROM usage_events WHERE user_id=$1 AND event_type='analysis' AND created_at>=CURRENT_DATE AND created_at<CURRENT_DATE+INTERVAL '1 day'`,[userId]);if(Number(count.rows[0]?.n??0)>=1){await client.query("ROLLBACK");return res.status(403).json({allowed:false,reason:"DAILY_LIMIT",limit:1,message:"Le plan Flash / Découverte autorise 1 analyse par jour."});}}
-await client.query(`INSERT INTO usage_events(id,user_id,event_type,word_count) VALUES(gen_random_uuid()::TEXT,$1,'analysis',$2)`,[userId,words]);await client.query("COMMIT");return res.status(200).json({allowed:true,plan:sub.plan,words,maxWords});}catch(e){try{await client.query("ROLLBACK")}catch{}throw e}finally{client.release();}}catch(error){console.error("[usage/consume]",error);const message=error instanceof Error?error.message:"Service indisponible.";return res.status(503).json({allowed:false,reason:"USAGE_SERVICE_UNAVAILABLE",message:message.includes("DATABASE_URL")||message.includes("AUTH_SECRET")?message:"Impossible de valider le quota d'analyse."});}}
+function authSecret() {
+  const value = process.env.AUTH_SECRET?.trim();
+  if (!value || value.length < 32) throw new Error("AUTH_SECRET is not configured.");
+  return value;
+}
+
+let pool: Pool | undefined;
+function db() {
+  if (pool) return pool;
+  pool = new Pool({
+    connectionString: databaseUrl(),
+    max: 5,
+    idleTimeoutMillis: 10_000,
+    connectionTimeoutMillis: 10_000,
+    ssl: { rejectUnauthorized: true },
+    application_name: "oligens-detector-usage",
+  });
+  pool.on("error", (error) => console.error("[usage/consume] database pool error", error));
+  return pool;
+}
+
+function uid(req: VercelRequest) {
+  const raw = (req.headers.cookie ?? "")
+    .split(";")
+    .map((value) => value.trim())
+    .find((value) => value.startsWith(`${COOKIE}=`))
+    ?.slice(COOKIE.length + 1);
+  if (!raw) return null;
+  try {
+    const payload = jwt.verify(raw, authSecret(), { issuer: "oligens-detector" }) as jwt.JwtPayload;
+    return typeof payload.sub === "string" ? payload.sub : null;
+  } catch {
+    return null;
+  }
+}
+
+function errorResponse(res: VercelResponse, quota: QuotaResult) {
+  switch (quota.code) {
+    case "SUBSCRIPTION_INACTIVE":
+      return res.status(403).json({ allowed: false, reason: quota.code, message: "Votre abonnement n'est pas actif." });
+    case "NO_SUBSCRIPTION":
+      return res.status(403).json({ allowed: false, reason: quota.code, message: "Aucun abonnement actif n'est associé à ce compte." });
+    case "WORD_LIMIT":
+      return res.status(403).json({
+        allowed: false,
+        reason: quota.code,
+        maxWords: quota.maxWords,
+        message: `Votre plan autorise ${Number(quota.maxWords ?? 0).toLocaleString("fr-FR")} mots maximum par analyse.`,
+      });
+    case "DAILY_LIMIT":
+      return res.status(403).json({ allowed: false, reason: quota.code, limit: quota.limit ?? 1, message: "Le plan Flash / Découverte autorise 1 analyse par jour." });
+    default:
+      return res.status(403).json({ allowed: false, reason: quota.code ?? "ANALYSIS_NOT_ALLOWED", message: "Analyse non autorisée." });
+  }
+}
+
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private");
+  if (req.method !== "POST") {
+    res.setHeader("Allow", "POST");
+    return res.status(405).json({ error: "Méthode non autorisée." });
+  }
+
+  try {
+    const userId = uid(req);
+    if (!userId) return res.status(401).json({ allowed: false, reason: "AUTH_REQUIRED", message: "Connexion requise." });
+
+    const words = Number((req.body as Record<string, unknown> | undefined)?.words ?? 0);
+    if (!Number.isInteger(words) || words < 0) {
+      return res.status(400).json({ allowed: false, reason: "INVALID_WORD_COUNT", message: "Nombre de mots invalide." });
+    }
+
+    const result = await db().query<{ result: QuotaResult }>(
+      "SELECT consume_analysis($1,$2)::jsonb AS result",
+      [userId, words],
+    );
+    const quota = result.rows[0]?.result;
+    if (!quota?.allowed) return errorResponse(res, quota ?? { allowed: false, code: "ANALYSIS_NOT_ALLOWED" });
+
+    return res.status(200).json({
+      allowed: true,
+      plan: quota.plan,
+      words,
+      maxWords: quota.maxWords ?? null,
+    });
+  } catch (error) {
+    console.error("[usage/consume] error", error);
+    const message = error instanceof Error ? error.message : "Service indisponible.";
+    if (message.includes("DATABASE_URL")) return res.status(503).json({ allowed: false, reason: "DATABASE_NOT_CONFIGURED", message: "Base de données non configurée." });
+    if (message.includes("AUTH_SECRET")) return res.status(503).json({ allowed: false, reason: "AUTH_SECRET_NOT_CONFIGURED", message: "Authentification serveur non configurée." });
+    if (/consume_analysis|function .* does not exist/i.test(message)) return res.status(503).json({ allowed: false, reason: "DATABASE_MIGRATION_REQUIRED", message: "La migration de sécurité de la base de données n'est pas encore appliquée." });
+    return res.status(503).json({ allowed: false, reason: "USAGE_SERVICE_UNAVAILABLE", message: "Impossible de valider le quota d'analyse." });
+  }
+}
