@@ -3,6 +3,7 @@ import jwt from "jsonwebtoken";
 import { Pool, type PoolClient } from "pg";
 
 const COOKIE = "oligens_session";
+
 function databaseUrl() {
   const value = process.env.DATABASE_URL?.trim();
   if (!value) throw new Error("DATABASE_URL is not configured.");
@@ -20,18 +21,18 @@ let pool: Pool | undefined;
 
 type Body = Record<string, unknown>;
 
-type Subscription = {
-  id: string;
-  plan: "free" | "flash" | "pro" | "gold";
-  status: "active" | "expired" | "cancelled" | "pending";
-  expires_at: string | null;
+type QuotaResult = {
+  allowed: boolean;
+  code?: string;
+  maxWords?: number;
+  limit?: number;
+  plan?: string;
 };
 
 function getPool() {
   if (pool) return pool;
-  const connectionString = databaseUrl();
   pool = new Pool({
-    connectionString,
+    connectionString: databaseUrl(),
     max: 5,
     idleTimeoutMillis: 10_000,
     connectionTimeoutMillis: 10_000,
@@ -87,6 +88,14 @@ function sendError(res: VercelResponse, status: number, error: string, code: str
   return res.status(status).json({ error, code, ...extra });
 }
 
+function quotaError(result: QuotaResult): never {
+  if (result.code === "SUBSCRIPTION_INACTIVE") throw Object.assign(new Error("Votre abonnement n'est pas actif."), { code: result.code });
+  if (result.code === "NO_SUBSCRIPTION") throw Object.assign(new Error("Aucun abonnement actif n'est associé à ce compte."), { code: result.code });
+  if (result.code === "WORD_LIMIT") throw Object.assign(new Error(`Votre plan autorise ${Number(result.maxWords ?? 0).toLocaleString("fr-FR")} mots maximum par analyse.`), { code: result.code, maxWords: result.maxWords });
+  if (result.code === "DAILY_LIMIT") throw Object.assign(new Error("Le plan Flash / Découverte autorise 1 analyse par jour."), { code: result.code, limit: result.limit ?? 1 });
+  throw Object.assign(new Error("Analyse non autorisée."), { code: result.code ?? "ANALYSIS_NOT_ALLOWED" });
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "POST") return sendError(res, 405, "Méthode non autorisée.", "METHOD_NOT_ALLOWED");
 
@@ -106,49 +115,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (wordCount > 100_000) return sendError(res, 413, "Le texte dépasse la limite de 100 000 mots par analyse.", "TEXT_TOO_LARGE", { maxWords: 100_000 });
 
     const inserted = await transaction(async (client) => {
-      let subscription = (await client.query<Subscription>(
-        `SELECT id,plan,status,expires_at FROM subscriptions WHERE user_id=$1 FOR UPDATE`,
-        [userId]
-      )).rows[0];
-
-      if (!subscription) {
-        subscription = (await client.query<Subscription>(
-          `INSERT INTO subscriptions(id,user_id,plan,status,billing_period,max_words_per_analysis,analyses_per_day,unlimited_database,advanced_reports,advanced_statistics,advanced_history)
-           VALUES(gen_random_uuid()::TEXT,$1,'free','active','monthly',2500,NULL,FALSE,FALSE,FALSE,FALSE)
-           RETURNING id,plan,status,expires_at`,
-          [userId]
-        )).rows[0];
-      }
-
-      if (subscription.plan !== "free" && subscription.expires_at && new Date(subscription.expires_at) <= new Date()) {
-        await client.query(
-          `UPDATE subscriptions SET plan='free',status='active',billing_period='monthly',expires_at=NULL,max_words_per_analysis=2500,analyses_per_day=NULL,unlimited_database=FALSE,advanced_reports=FALSE,advanced_statistics=FALSE,advanced_history=FALSE WHERE id=$1`,
-          [subscription.id]
-        );
-        subscription = { ...subscription, plan: "free", status: "active", expires_at: null };
-      }
-
-      if (subscription.status !== "active") {
-        throw Object.assign(new Error("Votre abonnement n'est pas actif."), { code: "SUBSCRIPTION_INACTIVE" });
-      }
-
-      const maxWords = subscription.plan === "free" || subscription.plan === "flash" ? 2500 : null;
-      if (maxWords !== null && wordCount > maxWords) {
-        throw Object.assign(new Error(`Le plan ${subscription.plan === "flash" ? "Flash / Découverte" : "Free"} autorise ${maxWords.toLocaleString("fr-FR")} mots maximum par analyse.`), {
-          code: "WORD_LIMIT",
-          maxWords,
-        });
-      }
-
-      if (subscription.plan === "flash") {
-        const usage = await client.query<{ count: number }>(
-          `SELECT COUNT(*)::int AS count FROM usage_events WHERE user_id=$1 AND event_type='analysis' AND created_at>=CURRENT_DATE AND created_at<CURRENT_DATE+INTERVAL '1 day'`,
-          [userId]
-        );
-        if (Number(usage.rows[0]?.count ?? 0) >= 1) {
-          throw Object.assign(new Error("Le plan Flash / Découverte autorise 1 analyse par jour."), { code: "DAILY_LIMIT", limit: 1 });
-        }
-      }
+      // consume_analysis is the single authoritative quota gate. It also inserts
+      // the usage event inside this transaction, so failed persistence rolls it back.
+      const quotaRow = await client.query<{ result: QuotaResult }>(
+        `SELECT consume_analysis($1,$2)::jsonb AS result`,
+        [userId, wordCount]
+      );
+      const quota = quotaRow.rows[0]?.result;
+      if (!quota?.allowed) quotaError(quota ?? { allowed: false, code: "ANALYSIS_NOT_ALLOWED" });
 
       const lower = fileName.toLowerCase();
       const fileType = lower.endsWith(".pdf") ? "pdf" : lower.endsWith(".docx") || lower.endsWith(".doc") ? "docx" : "txt";
@@ -172,11 +146,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         ]
       );
 
-      await client.query(
-        `INSERT INTO usage_events(id,user_id,event_type,word_count) VALUES(gen_random_uuid()::TEXT,$1,'analysis',$2)`,
-        [userId, wordCount]
-      );
-
       return analysis.rows[0];
     });
 
@@ -184,12 +153,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   } catch (error) {
     console.error("[analyses/create] error", error);
     const code = error && typeof error === "object" && "code" in error ? String((error as { code?: unknown }).code) : "";
-    if (code === "SUBSCRIPTION_INACTIVE") return sendError(res, 403, (error as Error).message, code);
+    if (code === "SUBSCRIPTION_INACTIVE" || code === "NO_SUBSCRIPTION") return sendError(res, 403, (error as Error).message, code);
     if (code === "WORD_LIMIT") return sendError(res, 403, (error as Error).message, code, { maxWords: (error as { maxWords?: number }).maxWords });
     if (code === "DAILY_LIMIT") return sendError(res, 403, (error as Error).message, code, { limit: 1 });
+    if (code === "ANALYSIS_NOT_ALLOWED") return sendError(res, 403, (error as Error).message, code);
     const message = error instanceof Error ? error.message : "Impossible d'enregistrer l'analyse.";
     if (message.includes("DATABASE_URL")) return sendError(res, 503, "Base de données non configurée.", "DATABASE_NOT_CONFIGURED");
     if (message.includes("AUTH_SECRET")) return sendError(res, 503, "Authentification serveur non configurée.", "AUTH_SECRET_NOT_CONFIGURED");
+    if (/consume_analysis|function .* does not exist/i.test(message)) return sendError(res, 503, "La migration de sécurité de la base de données n'est pas encore appliquée.", "DATABASE_MIGRATION_REQUIRED");
     return sendError(res, 503, "Impossible d'enregistrer l'analyse. Votre analyse n'a pas été comptabilisée si l'enregistrement a échoué.", "ANALYSIS_PERSISTENCE_ERROR");
   }
 }
