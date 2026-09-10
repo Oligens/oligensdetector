@@ -10,7 +10,7 @@ function getWorker(): Worker {
   return worker;
 }
 
-function analyzeInWorker(text: string, timeoutMs = 180_000): Promise<FullAnalysisResult> {
+function analyzeInWorker(text: string, options?: RunOptions, timeoutMs = 180_000): Promise<FullAnalysisResult> {
   return new Promise((resolve, reject) => {
     let w: Worker;
     try { w = getWorker(); } catch (err) { reject(err instanceof Error ? err : new Error(String(err))); return; }
@@ -24,7 +24,7 @@ function analyzeInWorker(text: string, timeoutMs = 180_000): Promise<FullAnalysi
     };
     const onError = (e: ErrorEvent) => { cleanup(); reject(new Error(e.message || "Le traitement de l'analyse a rencontré un problème.")); };
     function cleanup() { window.clearTimeout(timer); w.removeEventListener("message", onMessage); w.removeEventListener("error", onError); }
-    w.addEventListener("message", onMessage); w.addEventListener("error", onError); w.postMessage({ id, text });
+    w.addEventListener("message", onMessage); w.addEventListener("error", onError); w.postMessage({ id, text, options });
   });
 }
 
@@ -38,7 +38,7 @@ export async function analyzeText(text: string, options?: RunOptions): Promise<F
 
   if (words > WORKER_THRESHOLD_WORDS && !workerFailed) {
     try {
-      const result = await analyzeInWorker(clean);
+      const result = await analyzeInWorker(clean, options);
       result.processing = { mode: "worker", durationMs: Math.round(performance.now() - t0), words };
       return result;
     } catch {
@@ -47,9 +47,7 @@ export async function analyzeText(text: string, options?: RunOptions): Promise<F
   }
 
   await yieldToUi();
-  // Même pipeline en direct et dans le worker. L'option est appliquée ici sans
-  // réexécuter une seconde analyse après le retour du worker.
-  const base = await runAnalysisPipeline(clean);
+  const base = await runAnalysisPipeline(clean, options);
   base.processing = { mode: "direct", durationMs: Math.round(performance.now() - t0), words };
   return base;
 }
