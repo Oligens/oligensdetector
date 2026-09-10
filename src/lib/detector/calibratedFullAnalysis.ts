@@ -19,8 +19,6 @@ export function runCalibratedFullAnalysis(text:string,options:RunOptions={}):Ful
   const agentCorrection=(agents.score-.5)*.10*evidenceGate;
   const advancedGate=clamp(olig.confidence*(.55+agents.consensus*.45));
   const advancedCorrection=(olig.score-.5)*.18*advancedGate;
-  // Oligens ML is an independent evidence family. Its influence is bounded and
-  // calibrated separately so it cannot silently dominate the legacy engine.
   const mlGate=clamp(ml.confidence*.85+ml.coverage*.15);
   const mlCorrection=(ml.scoreIA-.5)*.20*mlGate;
   const probability=clamp(calibrated.probabilite_IA+agentCorrection+advancedCorrection+mlCorrection);
@@ -45,7 +43,6 @@ export function runCalibratedFullAnalysis(text:string,options:RunOptions={}):Ful
   const confidence=clamp(calibrated.confiance_analyse==="Élevée"?.76:calibrated.confiance_analyse==="Moyenne"?.58:.38,.20,.92);
 
   return {...base,probabilite_IA:Number(probability.toFixed(4)),intervalle_confiance_95,confiance_analyse:confidence>=.70?"Élevée":confidence>=.50?"Moyenne":"Faible",rapport_detaille:sortedReport,decision_precaution:ml.mixedText?ml.explanation:calibrated.decision_precaution,features:{...base.features,...calibrated.features},z_scores:base.z_scores,processing:{...base.processing,words},signature:probability<.35?{...base.signature,modele_principal:null,note:"Aucune signature automatisée dominante ne se détache."}:base.signature,references:base.references,plagiat_estime:base.plagiat_estime,
-    // Persisted inside analysis_result JSONB; no PostgreSQL schema change required.
     oligENS_ml:{modelVersion:ml.modelVersion,scoreIA:ml.scoreIA,confidence:ml.confidence,verdict:ml.verdict,mixedText:ml.mixedText,coverage:ml.coverage,passages:ml.passages,explanation:ml.explanation,metrics:ml.metrics},
   } as FullAnalysisResult & { oligENS_ml: typeof ml };
 }
