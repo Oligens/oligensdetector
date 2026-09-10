@@ -7,20 +7,15 @@ export interface SanitizedDocument {
   excludedBlocks: number;
 }
 
-const SECTION_HEADING = /^(?:\s*(?:#{1,6}\s*)?(?:bibliographie|bibliography|références|references|sources|notes(?:\s+de\s+bas\s+de\s+page)?|footnotes)\s*:?[ \t]*)(?:\r?\n|$)/imu;
-const NEXT_SECTION = /^\s*(?:#{1,6}\s*)?(?:bibliographie|bibliography|références|references|sources|notes(?:\s+de\s+bas\s+de\s+page)?|footnotes|annexes?|appendices?)\s*:?[ \t]*$/imu;
-
 function maskFormalCitations(text: string): { active: string; citations: string; count: number } {
   const chunks: string[] = [];
   let count = 0;
   const active = text
-    // Markdown block quotations / indented formal excerpts.
     .replace(/^\s*>.*(?:\r?\n|$)/gim, (match) => {
       count++;
       chunks.push(match);
       return "\n";
     })
-    // Quoted excerpts. Keep line breaks so sentence/paragraph positions remain stable.
     .replace(/[“”"«»](?:.|\r?\n)*?[”"«»]/g, (match) => {
       count++;
       chunks.push(match);
@@ -69,10 +64,7 @@ function isolateSections(text: string): { active: string; bibliography: string; 
   return { active: active.join("\n"), bibliography: bibliography.join("\n"), notes: notes.join("\n"), count };
 }
 
-/**
- * Removes document-level material that should not influence active prose
- * stylometry or plagiarism. The original document is never mutated.
- */
+/** Removes bibliography, references, notes and formal quotations from the active analysis text. */
 export function sanitizeDocument(text: string): SanitizedDocument {
   const originalText = text.replace(/\r\n?/g, "\n");
   const sections = isolateSections(originalText);
