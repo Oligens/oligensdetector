@@ -1,9 +1,9 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
-import { fmtInt, type GlobalResults, type RecentEntry, type ReportItem, type OligensMLResult } from "../data";
+import { fmtInt, type CopyleaksResult, type GlobalResults, type RecentEntry, type ReportItem, type OligensMLResult } from "../data";
 import { analyzeText } from "../lib/detector/analysisRunner";
 import type { FullAnalysisResult } from "../lib/detector/heuristicEngine";
-import { HumanizerReport } from "../lib/humanizer/humanizerUltimate";
+import type { HumanizerReport } from "../lib/humanizer/humanizerUltimate";
 import { prefersReducedMotion } from "../ui";
 import { useAuth } from "./AuthContext";
 
@@ -152,6 +152,37 @@ export function AnalysisProvider({ children }: { children: ReactNode }) {
         const analysis = await analyzeText(text, { language: "auto" });
         if (runId !== runIdRef.current) return;
         const mapped = mapAnalysis(analysis, payload.name);
+
+        // Copyleaks is a server-side corroboration layer. It never receives the API key
+        // from the browser. If it is not configured or temporarily unavailable, the local
+        // Oligens analysis remains usable and is still persisted.
+        try {
+          const verification = await fetch("/api/copyleaks/scan", {
+            method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text, language: analysis.langue === "fr" ? "fr" : analysis.langue === "en" ? "en" : undefined, scanId: `oligens-${Date.now()}-${runId}` }),
+          });
+          const verificationData = await verification.json().catch(() => ({}));
+          if (verification.ok && verificationData.result) {
+            const external = verificationData.result as CopyleaksResult;
+            mapped.copyleaks = external;
+            // In live production, an independent high-confidence provider result is
+            // not allowed to be hidden by a much lower local score. Sandbox results
+            // remain observational and never alter the Oligens score.
+            if (!external.sandbox) {
+              const externalAi = Math.round(external.aiProbability * 100);
+              if (externalAi > mapped.ia) {
+                mapped.ia = externalAi;
+                mapped.human = Math.max(0, 100 - Math.min(100, mapped.ia + mapped.plagiat + mapped.refs));
+                mapped.passages = Math.max(mapped.passages, mapped.ia >= 35 ? 2 : 0);
+              }
+            }
+          } else if (verificationData.code !== "COPYLEAKS_NOT_CONFIGURED") {
+            console.warn("[AnalysisContext] Copyleaks verification unavailable", verificationData);
+          }
+        } catch (verificationError) {
+          console.warn("[AnalysisContext] Copyleaks verification skipped", verificationError);
+        }
+
         const save = await fetch("/api/analyses/create", {
           method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ fileName: payload.name, sizeKo: payload.sizeKo, result: mapped }),
@@ -160,7 +191,7 @@ export function AnalysisProvider({ children }: { children: ReactNode }) {
         if (!save.ok) throw Object.assign(new Error(saved.error ?? "Impossible d'enregistrer l'analyse."), { code: saved.code, maxWords: saved.maxWords });
         if (runId !== runIdRef.current) return;
         const row = saved.analysis;
-        const entry: RecentEntry = row ? rowToEntry(row) : { id: `local-${Date.now()}`, name: payload.name, kind: "txt", date: new Date().toLocaleDateString("fr-FR"), time: new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }), pages: Math.max(1, Math.ceil(wordCount / 300)), ai: mapped.ia, plagiat: mapped.plagiat, sizeKo: payload.sizeKo, mots: wordCount, fresh: true };
+        const entry: RecentEntry = row ? rowToEntry(row) : { id: `local-${Date.now()}`, name: payload.name, kind: "txt", date: new Date().toLocaleDateString("fr-FR"), time: new Date().toLocaleTimeString("fr-FR"), pages: Math.max(1, Math.ceil(wordCount / 300)), ai: mapped.ia, plagiat: mapped.plagiat, sizeKo: payload.sizeKo, mots: wordCount, fresh: true };
         setProgress(100);
         setResults(mapped);
         setEntries((items) => [entry, ...items.filter((item) => item.id !== entry.id)].slice(0, 100));
