@@ -169,7 +169,7 @@ export function extractAdvancedSignals(text: string): AdvancedSignals {
     lexicalEntropy, typeTokenRatio, hapaxRatio: wc ? hapax/wc : 0,
     sentenceLengthCV: cv(lengths), sentenceLengthMean: lengths.length ? lengths.reduce((a,b)=>a+b,0)/lengths.length : 0,
     punctuationEntropy, punctuationCV, repeatedBigramRatio, repeatedTrigramRatio,
-    paragraphUniformity, transitionDensity, genericPhraseDensity, functionWordUniformity,
+    paragraphUniformity, transitionDensity, genericPhraseDensity, functionWordUniformity: functionUniformity,
     characterEntropy, digitPatternRatio, quoteRatio, structuralRegularity: structural,
     semanticProxy, aiEvidence, humanEvidence, confidence,
   };
