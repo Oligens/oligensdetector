@@ -8,7 +8,8 @@ const scale = (v: number, lo: number, hi: number) => clamp((v - lo) / (hi - lo))
 /**
  * Oligens Detector V4: evidence-based calibration.
  * This is an estimate of AI-like stylistic evidence, not proof of authorship.
- * Generic properties of good or formal writing are intentionally weak signals.
+ * Human-like characteristics are supporting evidence, never a reason to force
+ * the AI probability to zero.
  */
 export function analyzeCalibrated(text: string, genre = "generic"): HeuristicResult & { features: Features } {
   const clean = text.replace(/\s+/g, " ").trim();
@@ -57,21 +58,28 @@ export function analyzeCalibrated(text: string, genre = "generic"): HeuristicRes
 
   const formalGenre = /academic|académique|scientific|scientifique|legal|juridique|administratif|administrative|report|rapport/i.test(genre);
   const prior = formalGenre ? 0.035 : 0.045;
-  const raw = clamp(prior + aiEvidence * 0.92 - humanEvidence * (formalGenre ? 0.52 : 0.58));
+
+  // Human-like signals lower the estimate, but are intentionally bounded.
+  // The previous calibration could subtract enough evidence to collapse every
+  // ambiguous/human-looking document to an exact 0%, which is misleading.
+  const raw = clamp(prior + aiEvidence * 0.92 - humanEvidence * (formalGenre ? 0.34 : 0.38));
 
   let probability = raw;
   if (strongSignals === 0) probability = Math.min(probability, 0.18);
   else if (strongSignals === 1) probability = Math.min(probability, 0.34);
   else if (strongSignals === 2) probability = Math.min(probability, 0.62);
   if (template < 0.18 && structural.score < 0.20 && aiEvidence < 0.42) probability = Math.min(probability, 0.28);
-  if (humanEvidence >= 0.62 && strongSignals <= 2) probability = Math.min(probability, 0.22);
+
+  // Human evidence should not create an artificial 0% authorship claim.
+  // Reserve 0% exclusively for an empty/no-text result handled above.
+  probability = clamp(probability, 0.01, 1);
 
   const length = lengthConfidence(words);
   const agreement = strongSignals / 7;
   const confidence = evidenceConfidence(words, agreement, Math.max(1, strongSignals));
   const evidenceStrength = clamp(Math.abs(aiEvidence - humanEvidence) * 1.7 + 0.18);
   const blendedConfidence = clamp(confidence * 0.76 + length * 0.14 + evidenceStrength * 0.10, 0.20, 1);
-  probability = clamp(0.02 + (probability - 0.02) * blendedConfidence);
+  probability = clamp(0.01 + (probability - 0.01) * blendedConfidence, 0.01, 1);
 
   const uncertainty = clamp(0.24 - confidence * 0.14, 0.07, 0.24);
   const intervalle_confiance_95: [number, number] = [clamp(probability - uncertainty), clamp(probability + uncertainty)];
