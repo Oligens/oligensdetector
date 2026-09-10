@@ -6,7 +6,7 @@
     "dev": "vite",
     "build": "vite build",
     "typecheck": "tsc --noEmit",
-    "db:migrate": "psql \"$DIRECT_DATABASE_URL\" -f db/migrations/001_neon.sql"
+    "db:migrate": "node scripts/migrate.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.1.0",
