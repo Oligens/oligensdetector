@@ -40,10 +40,10 @@ const words = (text: string) => text.toLocaleLowerCase().match(/[\p{L}\p{N}'’-
 const sentences = (text: string) => text.match(/[^.!?…]+[.!?…]+|[^.!?…]+$/g)?.map(s => s.trim()).filter(Boolean) ?? [];
 const paragraphs = (text: string) => text.split(/\n{2,}/).map(s => s.trim()).filter(Boolean);
 
-const FR = new Set("le la les un une des de du au aux ce cet cette ces et ou mais donc car que qui dont où en y dans par pour sur sous avec sans entre chez comme quand lorsque puisque si afin est sont être avoir il elle ils elles on nous vous je me te se ne pas plus très aussi encore déjà cette cela ça leur leurs mon ma mes ton ta tes son sa ses notre votre vos leurs pour que dont".split(" "));
-const EN = new Set("the a an of to in on for with from by and or but so because that which who when where if while as is are was were be been being have has had do does did not no more very also this that these those it he she they we you i me my your his her our their".split(" "));
-const HT = new Set("ak an ap avèk avan bay byen de depi e en epi eske et pou nan sou san se sa si yon yo li nou mwen ou pa plis anpil kòm lè ki gen genyen te pral ka nan men pouke paske avèk".split(" "));
-const TRANSITIONS = new Set("cependant néanmoins toutefois ainsi donc pourtant par conséquent en effet de plus en outre notamment finalement en conclusion premièrement deuxièmement d'une part d'autre part cependant moreover furthermore nevertheless therefore however consequently additionally in conclusion first second on the other hand".toLocaleLowerCase().split(/\s+/));
+const FR = new Set("le la les un une des de du au aux ce cet cette ces et ou mais donc car que qui dont où en y dans par pour sur sous avec sans entre chez comme quand lorsque puisque si afin est sont être avoir il elle ils elles on nous vous je me te se ne pas plus très aussi encore déjà cela ça leur leurs mon ma mes ton ta tes son sa ses notre votre vos".split(" "));
+const EN = new Set("the a an of to in on for with from by and or but so because that which who when where if while as is are was were be been being have has had do does did not no more very also this these those it he she they we you i me my your his her our their".split(" "));
+const HT = new Set("ak an ap avèk avan bay byen de depi e en epi eske et pou nan sou san se sa si yon yo li nou mwen ou pa plis anpil kòm lè ki gen genyen te pral ka men pouke paske".split(" "));
+const TRANSITIONS = new Set("cependant néanmoins toutefois ainsi donc pourtant par conséquent en effet de plus en outre notamment finalement en conclusion premièrement deuxièmement d'une part d'autre part moreover furthermore nevertheless therefore however consequently additionally in conclusion first second on the other hand".toLocaleLowerCase().split(/\s+/));
 const GENERIC = [
   "il est important de noter", "il convient de souligner", "il est essentiel de comprendre",
   "dans ce contexte", "de manière générale", "il est nécessaire de", "il est recommandé de",
@@ -84,11 +84,11 @@ function ngramRepeatRatio(tokens: string[], n: number): number {
 
 function detectLanguage(ws: string[]): DetectionLanguage {
   if (!ws.length) return "unknown";
-  const scores = [
+  const scores: Array<[DetectionLanguage, number]> = [
     ["fr", ws.filter(w => FR.has(w)).length],
     ["en", ws.filter(w => EN.has(w)).length],
     ["ht", ws.filter(w => HT.has(w)).length],
-  ] as const;
+  ];
   scores.sort((a,b) => b[1]-a[1]);
   return scores[0][1] < Math.max(2, ws.length * 0.015) ? "unknown" : scores[0][0];
 }
@@ -140,8 +140,6 @@ export function extractAdvancedSignals(text: string): AdvancedSignals {
   const punctuationCV = cv(punctuationCounts);
   const semanticProxy = ss.length > 1 ? clamp((1 - clamp(cv(lengths)/0.9))*0.5 + (1-entropy(starts))*0.5) : 0;
 
-  // Evidence weights are intentionally modest. They are calibrated as a
-  // consensus layer and never treated as proof on their own.
   const aiEvidence = clamp(
     (1 - clamp(typeTokenRatio / 0.72)) * 0.12 +
     (1 - clamp(cv(lengths) / 0.80)) * 0.18 +
