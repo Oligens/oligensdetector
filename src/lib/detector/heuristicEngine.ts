@@ -95,18 +95,20 @@ const STATS_REF = {
   ],
 };
 
-const HEURISTIC_WEIGHTS = [
+export const HEURISTIC_WEIGHTS = [
   0.12, 0.1, 0.08, 0.06, 0.14, 0.09, 0.07, 0.11, 0.05, 0.13,
   0.04, 0.06, 0.16, 0.18, 0.08, 0.07, 0.2, 0.09,
 ];
 
-const FEATURE_NAMES = [
+export const FEATURE_NAMES = [
   "MATTR (diversité mobile)", "Yule's K (répétition)", "Richesse mots pleins", "Hapax Legomena",
   "Burstiness (rythme)", "Diversité débuts de phrase", "Densité subordonnées", "Entropie grammaticale",
   "Variance ponctuation", "Similarité inter-phrases", "Variance émotionnelle", "Cohésion globale",
   "Taux transitions discursives", "Entropie caractères (perplexité)", "Redondance bigrammes",
   "Originalité n-grammes", "Score expressions IA", "Uniformité du style",
 ];
+
+export { STATS_REF };
 
 /* ---------- Tokenisation ---------- */
 

@@ -19,6 +19,7 @@ import {
   HEURISTIC_WEIGHTS,
   FEATURE_NAMES,
 } from "./heuristicEngine";
+import type { GlobalResults } from "../data";
 
 // ==================== TYPES ====================
 
@@ -105,6 +106,14 @@ export interface CalibratedProbability {
   calibrated: number;
   method: "isotonic" | "platScaling" | "temperature";
   confidenceInterval: [number, number];
+}
+
+export interface OligensAnalysisResult {
+  probability: CalibratedProbability;
+  segmentAnalysis: SegmentAnalysis[];
+  mixedDetection: MixedTextDetection;
+  explanation: ExplanationReport;
+  processing: { mode: "direct" | "worker"; durationMs: number; words: number };
 }
 
 // ==================== CALIBRATION DES PROBABILITÉS ====================
@@ -938,6 +947,136 @@ export class OligensEngine {
       calibrationError: Math.round(avgCalibrationError * 1000) / 1000,
     };
   }
+}
+
+// ==================== FONCTION DE MAPPAGE VERS GLOBALRESULTS ====================
+
+/**
+ * Convertit un résultat OLIGENS vers le format GlobalResults pour rétrocompatibilité
+ */
+export function mapOligensToGlobalResults(
+  oligensResult: OligensAnalysisResult,
+  fileName: string,
+  text: string
+): GlobalResults {
+  const ia = Math.round(oligensResult.probability.calibrated * 100);
+  const plagiat = 0; // Non géré par OLIGENS, à compléter si nécessaire
+  const refs = 0;
+  const human = Math.max(0, 100 - ia - plagiat - refs);
+  const passages = Math.max(ia >= 35 ? 2 : 0, Math.round(plagiat / 3));
+  
+  // Extraction des signaux principaux pour le rapport
+  const primarySignals = oligensResult.explanation.primarySignals;
+  const topFactor = primarySignals.length > 0 ? {
+    nom: primarySignals[0].name,
+    z_score: primarySignals[0].value,
+    contribution: primarySignals[0].contribution,
+  } : null;
+  
+  // Construction du résumé explicatif
+  const wordCount = text.trim().split(/\s+/).length;
+  const sentenceCount = sentencize(text).length;
+  const charCount = text.length;
+  
+  let summary = `${wordCount.toLocaleString("fr-FR")} mots, ${sentenceCount} phrases et ${charCount} caractères analysés en ${oligensResult.processing.durationMs} ms.`;
+  if (topFactor) {
+    summary += ` Facteur dominant : ${topFactor.nom} (score = ${topFactor.z_score.toFixed(2)}).`;
+  }
+  if (oligensResult.mixedDetection.isMixed) {
+    summary += ` Texte mixte détecté : ${(oligensResult.mixedDetection.overallAiRatio * 100).toFixed(0)}% IA.`;
+  }
+  
+  // Détermination du niveau de confiance
+  const confidenceValue = oligensResult.explanation.confidenceFactors.overall;
+  let confidence: "Faible" | "Moyenne" | "Élevée" = "Moyenne";
+  if (confidenceValue >= 0.8) confidence = "Élevée";
+  else if (confidenceValue < 0.5) confidence = "Faible";
+  
+  // Décision de précaution
+  let decision: string | undefined = undefined;
+  if (ia >= 85) decision = "Risque Élevé : Vérification manuelle recommandée";
+  else if (ia >= 50) decision = "Risque Moyen : Examiner les passages signalés";
+  else if (ia < 15) decision = "Risque Faible : Contenu probablement humain";
+  
+  return {
+    fileName,
+    ia,
+    plagiat,
+    refs,
+    human,
+    refsTotal: 0,
+    refsDouteuses: 0,
+    passages,
+    summary,
+    origins: [],
+    confidence,
+    confidenceInterval: [
+      Math.round(oligensResult.probability.confidenceInterval[0] * 100),
+      Math.round(oligensResult.probability.confidenceInterval[1] * 100),
+    ],
+    decision,
+    engine: oligensResult.processing,
+    language: "fr", // À détecter automatiquement si nécessaire
+    signatureNote: undefined,
+    topFactors: primarySignals.map(s => ({
+      nom: s.name,
+      z_score: s.value,
+      contribution: s.contribution,
+    })),
+    metrics: {
+      precision: oligensResult.explanation.confidenceFactors.overall,
+      transitionDensity: 0,
+      burstiness: 0,
+      mattr: 0,
+      originalite: 0,
+      charEntropy: 0,
+    },
+  };
+}
+
+// ==================== INSTANCE SINGLETON ====================
+
+let oligensInstance: OligensEngine | null = null;
+
+/**
+ * Retourne l'instance singleton du moteur OLIGENS
+ */
+export function getOligensEngine(): OligensEngine {
+  if (!oligensInstance) {
+    oligensInstance = new OligensEngine();
+  }
+  return oligensInstance;
+}
+
+/**
+ * Analyse un texte avec le moteur OLIGENS v3
+ * Fonction principale pour intégration dans AnalysisContext
+ */
+export async function analyzeWithOligens(
+  text: string,
+  options?: { fileName?: string; mode?: "direct" | "worker" }
+): Promise<GlobalResults> {
+  const engine = getOligensEngine();
+  const t0 = performance.now();
+  
+  // Exécution de l'analyse complète
+  const result = engine.analyze(text);
+  
+  // Ajout des informations de traitement
+  const words = text.trim().split(/\s+/).length;
+  const durationMs = Math.round(performance.now() - t0);
+  
+  const fullResult: OligensAnalysisResult = {
+    ...result,
+    processing: {
+      mode: options?.mode ?? "direct",
+      durationMs,
+      words,
+    },
+  };
+  
+  // Conversion vers GlobalResults pour rétrocompatibilité
+  return mapOligensToGlobalResults(fullResult, options?.fileName ?? "Analyse", text);
 }
 
 // Export des utilitaires
