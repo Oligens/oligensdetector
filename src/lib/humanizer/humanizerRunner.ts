@@ -1,3 +1,4 @@
+import { analyzeText } from "../detector/analysisRunner";
 import { enhancedHumanizer, type HumanizeOutcome } from "./humanizerEnhanced";
 import { preprocessForHumanization } from "./humanizerPreprocessor";
 import type { HumanizerConfig, HumanizerProgress, HumanizerReport } from "./humanizerUltimate";
@@ -35,8 +36,23 @@ function prepare(text: string, config?: Partial<HumanizerConfig>): string {
   return preprocessForHumanization(text, Boolean(config?.modeAggressif));
 }
 
-function runDirectPrepared(text: string, config: Partial<HumanizerConfig> | undefined, onProgress: ((p: HumanizerProgress) => void) | undefined): Promise<HumanizeOutcome> {
-  return enhancedHumanizer.humanize(text, config, onProgress).then((o) => tag(o, "direct"));
+async function applyCanonicalBefore(outcome: HumanizeOutcome, canonical: Promise<Awaited<ReturnType<typeof analyzeText>>>): Promise<HumanizeOutcome> {
+  const result = await canonical;
+  const before = result.probabilite_IA;
+  const finalProba = outcome.rapport.proba_finale;
+  return {
+    ...outcome,
+    rapport: {
+      ...outcome.rapport,
+      proba_initiale: before,
+      reduction_pourcent: before > 0 ? Math.max(0, ((before - finalProba) / before) * 100) : 0,
+      decision: `${outcome.rapport.decision} Score Avant canonique Oligens : ${Math.round(before * 1000) / 10} %.`,
+    },
+  };
+}
+
+function runDirectPrepared(text: string, config: Partial<HumanizerConfig> | undefined, onProgress: ((p: HumanizerProgress) => void) | undefined, canonical: Promise<Awaited<ReturnType<typeof analyzeText>>>): Promise<HumanizeOutcome> {
+  return enhancedHumanizer.humanize(text, config, onProgress).then((o) => tag(o, "direct")).then((o) => applyCanonicalBefore(o, canonical));
 }
 
 export function humanizeText(text: string, config?: Partial<HumanizerConfig>, onProgress?: (p: HumanizerProgress) => void): Promise<HumanizeOutcome> {
@@ -50,12 +66,16 @@ export function humanizeText(text: string, config?: Partial<HumanizerConfig>, on
     return Promise.resolve({ texteFinal: "", rapport: emptyReport });
   }
 
-  if (workerFailed) return runDirectPrepared(prepared, config, onProgress);
+  // The detector is evaluated exactly once through the canonical pipeline.
+  // The humanizer never invents or owns the displayed "Avant" score.
+  const canonical = analyzeText(prepared, { language: "auto" });
+
+  if (workerFailed) return runDirectPrepared(prepared, config, onProgress, canonical);
 
   return new Promise((resolve) => {
     let w: Worker;
     try { w = getWorker(); }
-    catch { workerFailed = true; resolve(runDirectPrepared(prepared, config, onProgress)); return; }
+    catch { workerFailed = true; resolve(runDirectPrepared(prepared, config, onProgress, canonical)); return; }
 
     const id = Date.now() + Math.random();
     let fallbackTriggered = false;
@@ -77,7 +97,7 @@ export function humanizeText(text: string, config?: Partial<HumanizerConfig>, on
         worker = null;
       }
       onProgress?.({ iteration: 1, total: config?.iterationsMax ?? 5, proba: 0.5, phase: "Worker indisponible — exécution locale", anomalies: [] });
-      runDirectPrepared(prepared, config, onProgress).then(resolve).catch((error) => resolve({ texteFinal: prepared, rapport: {
+      runDirectPrepared(prepared, config, onProgress, canonical).then(resolve).catch((error) => resolve({ texteFinal: prepared, rapport: {
         proba_initiale: 0, proba_finale: 0, reduction_pourcent: 0, iterations_realisees: 0, historique: [], features_finales: [],
         decision: error instanceof Error ? error.message : "Échec du moteur local.",
         config: { seuilCible: config?.seuilCible ?? 0.05, intensite: config?.intensite ?? 0.78, iterationsMax: config?.iterationsMax ?? 5, modeAggressif: Boolean(config?.modeAggressif), langue: config?.langue ?? "mixte" },
@@ -90,7 +110,10 @@ export function humanizeText(text: string, config?: Partial<HumanizerConfig>, on
       const d = e.data as { type?: string; id?: number; progress?: HumanizerProgress; texteFinal?: string; rapport?: HumanizeOutcome["rapport"] } | null;
       if (!d || d.type === "pong" || d.id !== id) return;
       if (d.type === "progress") { if (d.progress) onProgress?.(d.progress); return; }
-      if (d.type === "done" && typeof d.texteFinal === "string" && d.rapport) { cleanup(); resolve(tag({ texteFinal: d.texteFinal, rapport: d.rapport }, "worker")); }
+      if (d.type === "done" && typeof d.texteFinal === "string" && d.rapport) {
+        cleanup();
+        applyCanonicalBefore(tag({ texteFinal: d.texteFinal, rapport: d.rapport }, "worker"), canonical).then(resolve).catch(() => resolve(tag({ texteFinal: d.texteFinal!, rapport: d.rapport! }, "worker")));
+      }
       else if (d.type === "error") fallbackToDirect();
     };
     const onError = () => fallbackToDirect();
