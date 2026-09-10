@@ -437,15 +437,41 @@ export class IAHeuristicDetector {
       zScores.push(z);
     }
 
+    // Calcul de l'anomalie stylométrique totale (valeur absolue des écarts)
+    let totalAnomaly = 0;
+    for (let i = 0; i < zScores.length; i++) {
+      totalAnomaly += Math.abs(zScores[i]) * HEURISTIC_WEIGHTS[i];
+    }
+    // Normalisation de l'anomalie totale (0 à ~2.5 max théorique)
+    const normalizedAnomaly = Math.min(1, totalAnomaly / 2.5);
+
     let logit = 0;
     const contributions: { nom: string; z_score: number; contribution: number }[] = [];
     for (let i = 0; i < zScores.length; i++) {
-      const contrib = zScores[i] * HEURISTIC_WEIGHTS[i];
+      // CORRECTION : Une valeur négative indique une forte prédictibilité (typique des LLM)
+      // On inverse le signe pour que les z-scores négatifs augmentent le risque IA
+      const absZ = Math.abs(zScores[i]);
+      const contrib = absZ * HEURISTIC_WEIGHTS[i];
       logit += contrib;
       contributions.push({ nom: FEATURE_NAMES[i], z_score: zScores[i], contribution: contrib });
     }
 
-    const proba = 1 / (1 + Math.exp(-logit));
+    // Conversion du logit en probabilité avec scaling ajusté
+    // Le logit positif augmente maintenant la probabilité IA
+    const scaledLogit = logit * 1.8; // Facteur d'amplification pour mieux séparer les classes
+    const probaFromLogit = 1 / (1 + Math.exp(-scaledLogit));
+
+    // Combinaison : on prend le maximum entre la probabilité du logit et l'anomalie normalisée
+    // Si l'anomalie totale dépasse 0.70, on force un statut Risque Élevé (>85%)
+    let proba: number;
+    if (normalizedAnomaly > 0.70) {
+      proba = Math.max(probaFromLogit, 0.85 + (normalizedAnomaly - 0.70) * 0.5);
+    } else {
+      proba = probaFromLogit;
+    }
+    
+    // Plafonnement final
+    proba = Math.min(1, proba);
     const uncertainty = 0.12 * (1 + (1 - Math.abs(proba - 0.5) * 2));
     const icInf = Math.max(0, proba - uncertainty);
     const icSup = Math.min(1, proba + uncertainty);
