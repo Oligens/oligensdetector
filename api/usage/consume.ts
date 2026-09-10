@@ -97,8 +97,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(400).json({ allowed: false, reason: "INVALID_WORD_COUNT", message: "Nombre de mots invalide." });
     }
 
+    // This endpoint is a preflight/check endpoint. It must never consume quota.
+    // The actual analysis persistence path calls consume_analysis() atomically.
     const result = await db().query<{ result: QuotaResult }>(
-      "SELECT consume_analysis($1,$2)::jsonb AS result",
+      "SELECT check_analysis_quota($1,$2)::jsonb AS result",
       [userId, words],
     );
     const quota = result.rows[0]?.result;
@@ -115,7 +117,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const message = error instanceof Error ? error.message : "Service indisponible.";
     if (message.includes("DATABASE_URL")) return res.status(503).json({ allowed: false, reason: "DATABASE_NOT_CONFIGURED", message: "Base de données non configurée." });
     if (message.includes("AUTH_SECRET")) return res.status(503).json({ allowed: false, reason: "AUTH_SECRET_NOT_CONFIGURED", message: "Authentification serveur non configurée." });
-    if (/consume_analysis|function .* does not exist/i.test(message)) return res.status(503).json({ allowed: false, reason: "DATABASE_MIGRATION_REQUIRED", message: "La migration de sécurité de la base de données n'est pas encore appliquée." });
-    return res.status(503).json({ allowed: false, reason: "USAGE_SERVICE_UNAVAILABLE", message: "Impossible de valider le quota d'analyse." });
+    if (/check_analysis_quota|function .* does not exist/i.test(message)) return res.status(503).json({ allowed: false, reason: "DATABASE_MIGRATION_REQUIRED", message: "La migration de quota n'est pas encore appliquée." });
+    return res.status(503).json({ allowed: false, reason: "USAGE_SERVICE_UNAVAILABLE", message: "Impossible de vérifier le quota d'analyse." });
   }
 }
