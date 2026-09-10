@@ -1,6 +1,7 @@
 const COPYLEAKS_EMAIL = () => process.env.COPYLEAKS_EMAIL?.trim();
 const ACCESS_TOKEN_URL = "https://id.copyleaks.com/v3/account/login/api";
 const WRITER_DETECTOR_URL = "https://api.copyleaks.com/v2/writer-detector";
+const COPYLEAKS_TIMEOUT_MS = 8_000;
 
 export interface CopyleaksDetectionResult {
   provider: "copyleaks";
@@ -51,6 +52,21 @@ async function readJson(response: Response) {
   catch { return { raw: text }; }
 }
 
+async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit, timeoutMs = COPYLEAKS_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error(`Copyleaks n'a pas répondu dans le délai imparti (${timeoutMs / 1000}s).`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function getCopyleaksAccessToken(): Promise<string> {
   const now = Date.now();
   if (cachedToken && cachedToken.expiresAt > now + 5 * 60_000) return cachedToken.token;
@@ -59,7 +75,7 @@ export async function getCopyleaksAccessToken(): Promise<string> {
   const key = getApiKey();
   if (!email || !key) throw new Error("Identifiants Copyleaks non configurés. Définissez COPYLEAKS_EMAIL et la clé correspondant à l'environnement.");
 
-  const response = await fetch(ACCESS_TOKEN_URL, {
+  const response = await fetchWithTimeout(ACCESS_TOKEN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify({ email, key }),
@@ -88,7 +104,7 @@ export async function scanTextWithCopyleaks(text: string, scanId: string, option
 
   const accessToken = await getCopyleaksAccessToken();
   const safeScanId = normalizeScanId(scanId);
-  const response = await fetch(`${WRITER_DETECTOR_URL}/${encodeURIComponent(safeScanId)}/check`, {
+  const response = await fetchWithTimeout(`${WRITER_DETECTOR_URL}/${encodeURIComponent(safeScanId)}/check`, {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify({
