@@ -12,7 +12,7 @@ export const QWEN_CONFIG = {
   workspaceId: "server-managed",
 } as const;
 export const HYBRID_API_TIMEOUT_MS = 60_000;
-export type HybridFlow = "deepseek" | "gemini";
+export type HybridFlow = "deepseek" | "gemini" | "local";
 
 export interface HybridCallbacks { onPhase?: (label: string) => void; onApiDelta?: (accumulated: string) => void; onFallback?: (reason: string) => void; onLocalProgress?: (p: HumanizerProgress) => void; onFlowResolved?: (flow: HybridFlow) => void; }
 export interface HybridOutcome { flow: HybridFlow; text: string; report: HumanizerReport; apiDurationMs?: number; fallbackReason?: string; }
