@@ -3,10 +3,18 @@ import type { HumanizerConfig, HumanizerProgress, HumanizerReport } from "./huma
 // Historical filename retained for UI compatibility. Transformations are server-side:
 // /api/humanize -> Gemini, then Qwen fallback. Scores always come from /api/detect.
 export const GEMINI_CONFIG = { endpoint: "/api/humanize", model: "gemini-2.5-flash", timeoutMs: 60_000 } as const;
-export const QWEN_CONFIG = { endpoint: "/api/humanize", model: "qwen-plus", timeoutMs: 60_000 } as const;
+export const QWEN_CONFIG = {
+  endpoint: "/api/humanize",
+  model: "qwen-plus",
+  timeoutMs: 60_000,
+  // Legacy UI metadata only. Secrets are never shipped to the browser.
+  apiKey: "",
+  baseUrl: "/api/humanize",
+  workspaceId: "server-managed",
+} as const;
 export const QWEN_SYSTEM_PROMPT = "server-side";
 export const HYBRID_API_TIMEOUT_MS = 60_000;
-export type HybridFlow = "gemini" | "qwen";
+export type HybridFlow = "gemini" | "qwen" | "local";
 
 export interface HybridCallbacks { onPhase?: (label: string) => void; onApiDelta?: (accumulated: string) => void; onFallback?: (reason: string) => void; onLocalProgress?: (p: HumanizerProgress) => void; onFlowResolved?: (flow: HybridFlow) => void; }
 export interface HybridOutcome { flow: HybridFlow; text: string; report: HumanizerReport; apiDurationMs?: number; fallbackReason?: string; }
