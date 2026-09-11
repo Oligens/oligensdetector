@@ -14,7 +14,9 @@ export async function analyzeText(text: string, options?: RunOptions): Promise<F
   const data = await response.json().catch(() => ({} as Record<string, unknown>));
   if (!response.ok || !data.analysis) throw new Error(typeof data.error === "string" ? data.error : `Le service de détection a répondu ${response.status}.`);
   const result = data.analysis as FullAnalysisResult;
-  result.processing = { mode: "server", durationMs: Math.round(performance.now() - startedAt), words: countWords(clean) } as FullAnalysisResult["processing"];
+  // The legacy result type only permits "direct" | "worker". The actual
+  // execution is server-backed, so "direct" is the closest compatible mode.
+  result.processing = { mode: "direct", durationMs: Math.round(performance.now() - startedAt), words: countWords(clean) };
   return result;
 }
 
