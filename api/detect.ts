@@ -8,6 +8,8 @@ import { copyleaksConfiguration, scanTextWithCopyleaks } from "../src/lib/detect
 const COOKIE = "oligens_session";
 const MAX_CHARS = 100_000;
 
+type DetectLanguage = "fr" | "en";
+
 function authUserId(req: VercelRequest): string | null {
   const secret = process.env.AUTH_SECRET?.trim();
   if (!secret || secret.length < 32) throw new Error("AUTH_SECRET is not configured.");
@@ -19,8 +21,8 @@ function authUserId(req: VercelRequest): string | null {
   } catch { return null; }
 }
 
-function languageCode(value: string) {
-  return value === "fr" || value === "en" || value === "es" || value === "de" || value === "it" || value === "pt" ? value : undefined;
+function languageCode(value: string): DetectLanguage | undefined {
+  return value === "fr" || value === "en" ? value : undefined;
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -35,9 +37,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (text.length > MAX_CHARS) return res.status(413).json({ error: "Le texte dépasse 100 000 caractères.", code: "TEXT_TOO_LARGE", maxCharacters: MAX_CHARS });
     const requestedLanguage = typeof body.language === "string" ? languageCode(body.language.slice(0, 2)) : undefined;
 
-    // The server is the only source of truth. Bibliographies, references, footnotes
-    // and formal quotations are excluded before both the local detector and external
-    // AI detection are called.
     const sanitized = sanitizeDocument(text);
     const activeText = sanitized.activeText;
     if (activeText.trim().split(/\s+/).filter(Boolean).length < 30) {
@@ -49,8 +48,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     let copyleaksScore: number | null = null;
     let geminiScore: number | null = null;
 
-    // Copyleaks is the first external provider. It is synchronous and returns an
-    // overall human/AI summary for the submitted text.
     const copyConfig = copyleaksConfiguration();
     if (copyConfig.configured && activeText.length >= 255) {
       try {
@@ -64,8 +61,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       external.copyleaks = { configured: copyConfig.configured, skipped: activeText.length < 255, environment: copyConfig.environment };
     }
 
-    // Gemini is a secondary/hybrid signal. It is never given the bibliography or
-    // formal quotation blocks, and it never receives an API key from the browser.
     const geminiConfig = geminiDetectorConfiguration();
     if (geminiConfig.configured) {
       try {
@@ -83,8 +78,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (geminiScore !== null) candidateScores.push(Math.round(geminiScore * 100));
     const finalScore = Math.min(100, Math.max(...candidateScores));
 
-    // Hard business rule: the internal stylometric override can never be diluted
-    // by an external provider that happens to return a low score.
     const zVocabulary = Number(local.z_scores[0] ?? 0) / 2;
     const zOriginality = Number(local.z_scores[15] ?? 0) / 2;
     const overrideTriggered = zOriginality <= -0.80 || zVocabulary <= -0.80;
