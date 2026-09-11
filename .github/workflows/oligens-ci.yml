@@ -15,5 +15,6 @@ jobs:
         with:
           node-version: 22
       - run: npm install
+      - run: npm run verify:vercel
       - run: npm run typecheck
       - run: npm run build
