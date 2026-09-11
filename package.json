@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "typecheck": "tsc --noEmit",
+    "verify:vercel": "node scripts/verify-vercel-routes.mjs",
     "db:migrate": "node scripts/migrate.mjs"
   },
   "dependencies": {
@@ -36,7 +37,6 @@
     "@tailwindcss/vite": "^4.1.7",
     "@types/bcryptjs": "^2.4.6",
     "@types/canvas-confetti": "^1.6.4",
-    "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^22.15.21",
     "@types/nodemailer": "^6.4.17",
     "@types/pg": "^8.23.1",
