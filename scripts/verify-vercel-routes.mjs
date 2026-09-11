@@ -2,8 +2,10 @@ import { readdir, readFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 
 const repoRoot = new URL("../", import.meta.url);
-const forbiddenImport = /(?:\.\/|\.\.\/)+api\/services\/database|(?:from|import)\s*[^\n]*api\/services\/database/g;
-const forbiddenPath = /api\/services\/database(?:\.(?:js|mjs|cjs|ts|tsx))?\b/g;
+const selfPath = new URL(import.meta.url).pathname;
+const legacyImport = "api/services/database";
+const forbiddenImport = new RegExp(`(?:\\.\\/|\\.\\.\\/)+${legacyImport.replaceAll("/", "\\\\/")}|(?:from|import)\\s*[^\\n]*${legacyImport.replaceAll("/", "\\\\/")}`, "g");
+const forbiddenPath = new RegExp(`${legacyImport.replaceAll("/", "\\\\/")}(?:\\.(?:js|mjs|cjs|ts|tsx))?\\b`, "g");
 const conflictingRoute = "api/[route].ts";
 
 async function walk(directory) {
@@ -23,6 +25,7 @@ const files = await walk(rootPath);
 const violations = [];
 
 for (const file of files) {
+  if (file === selfPath) continue;
   const text = await readFile(file, "utf8");
   if (forbiddenImport.test(text) || forbiddenPath.test(text)) {
     violations.push(relative(rootPath, file));
@@ -42,8 +45,8 @@ try {
 if (violations.length > 0) {
   console.error("Vercel route integrity check failed:");
   for (const file of [...new Set(violations)]) console.error(` - ${file}`);
-  console.error("Remove legacy api/services/database references and conflicting api/[route].ts before deploying.");
+  console.error("Remove legacy database references and conflicting api/[route].ts before deploying.");
   process.exit(1);
 }
 
-console.log("Vercel route integrity check passed: no api/services/database references and no conflicting api/[route].ts route.");
+console.log("Vercel route integrity check passed: no legacy database references and no conflicting api/[route].ts route.");
