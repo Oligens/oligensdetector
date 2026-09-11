@@ -4,6 +4,13 @@ import type { HumanizerConfig, HumanizerProgress, HumanizerReport } from "./huma
 // /api/humanize -> DeepSeek, then Gemini fallback. Scores always come from /api/detect.
 export const GEMINI_CONFIG = { endpoint: "/api/humanize", model: "gemini-2.5-flash", timeoutMs: 60_000 } as const;
 export const DEEPSEEK_CONFIG = { endpoint: "/api/humanize", model: "deepseek-chat", timeoutMs: 60_000 } as const;
+/** @deprecated UI compatibility only. This alias does not call or configure Qwen. */
+export const QWEN_CONFIG = {
+  apiKey: "",
+  model: DEEPSEEK_CONFIG.model,
+  baseUrl: DEEPSEEK_CONFIG.endpoint,
+  workspaceId: "server-managed",
+} as const;
 export const HYBRID_API_TIMEOUT_MS = 60_000;
 export type HybridFlow = "deepseek" | "gemini";
 
