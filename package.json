@@ -5,6 +5,8 @@
   "engines": { "node": "22.x" },
   "scripts": {
     "dev": "vite",
+    "dev:vite": "vite",
+    "dev:vercel": "vercel dev --listen 3000",
     "build": "vite build",
     "typecheck": "tsc --noEmit",
     "verify:vercel": "node scripts/verify-vercel-routes.mjs",

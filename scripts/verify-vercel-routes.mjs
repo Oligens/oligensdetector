@@ -1,8 +1,11 @@
 import { readdir, readFile } from "node:fs/promises";
-import { join, relative } from "node:path";
+import { dirname, join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const repoRoot = new URL("../", import.meta.url);
-const selfPath = new URL(import.meta.url).pathname;
+const scriptPath = fileURLToPath(import.meta.url);
+const scriptDirectory = dirname(scriptPath);
+const rootPath = join(scriptDirectory, "..");
+const selfPath = scriptPath;
 const legacyImport = "api/services/database";
 const forbiddenImport = new RegExp(`(?:\\.\\/|\\.\\.\\/)+${legacyImport.replaceAll("/", "\\\\/")}|(?:from|import)\\s*[^\\n]*${legacyImport.replaceAll("/", "\\\\/")}`, "g");
 const forbiddenPath = new RegExp(`${legacyImport.replaceAll("/", "\\\\/")}(?:\\.(?:js|mjs|cjs|ts|tsx))?\\b`, "g");
@@ -20,7 +23,6 @@ async function walk(directory) {
   return files;
 }
 
-const rootPath = repoRoot.pathname;
 const files = await walk(rootPath);
 const violations = [];
 

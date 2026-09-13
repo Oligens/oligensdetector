@@ -12,7 +12,7 @@ function getPool() {
   if (pool) return pool;
   const connectionString = configuredDbUrl();
   if (!connectionString) throw new Error("DATABASE_NOT_CONFIGURED");
-  pool = new Pool({ connectionString, max: 5, idleTimeoutMillis: 10000, connectionTimeoutMillis: 10000, ssl: { rejectUnauthorized: false }, application_name: "oligens-detector-dashboard" });
+  pool = new Pool({ connectionString, max: 3, idleTimeoutMillis: 10000, connectionTimeoutMillis: 5000, statement_timeout: 10000, query_timeout: 12000, ssl: { rejectUnauthorized: false }, application_name: "oligens-detector-dashboard" });
   pool.on("error", error => console.error("[dashboard-db] idle client error", error));
   return pool;
 }
