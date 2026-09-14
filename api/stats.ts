@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { dbQuery, internalError, requireUser } from "./dashboardDb";
+import { dbQuery, internalError, requireUser } from "../src/server/dashboardDb";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "GET") return res.status(405).json({ error: "Méthode non autorisée" });

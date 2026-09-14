@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import crypto from "node:crypto";
-import { dbQuery, internalError, requireUser } from "./dashboardDb";
+import { dbQuery, internalError, requireUser } from "../src/server/dashboardDb";
 
 function body(req: VercelRequest) { return (req.body ?? {}) as Record<string, unknown>; }
 
