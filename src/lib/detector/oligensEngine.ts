@@ -19,7 +19,7 @@ import {
   HEURISTIC_WEIGHTS,
   FEATURE_NAMES,
 } from "./heuristicEngine";
-import type { GlobalResults } from "../data";
+import type { GlobalResults } from "../../data";
 
 // ==================== TYPES ====================
 
