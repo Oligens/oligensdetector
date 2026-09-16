@@ -4,6 +4,10 @@
     {
       "source": "/((?!api(?:/|$)|src(?:/|$)|@vite(?:/|$)|@react-refresh(?:/|$)|node_modules(?:/|$)|assets(?:/|$)|.*\\.).*)",
       "destination": "/index.html"
+    },
+    {
+      "source": "/api/auth/:route*",
+      "destination": "/api/[...all]?all=auth/:route*"
     }
   ],
   "headers": [
