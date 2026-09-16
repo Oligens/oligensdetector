@@ -17,6 +17,7 @@ type AuthUser = { id: string; email: string; email_verified: boolean };
 type SubscriptionRow = { plan: "free" | "flash" | "pro" | "gold"; status: "active" | "expired" | "cancelled" | "pending"; billing_period: "monthly" | "yearly" | "lifetime" | null; expires_at: string | null; started_at: string };
 
 let pool: Pool | undefined;
+let poolError: string | undefined;
 function dbUrl() {
   const value = process.env.DATABASE_URL?.trim()
     || process.env.POSTGRES_URL?.trim()
@@ -26,9 +27,15 @@ function dbUrl() {
   return value;
 }
 function getPool() {
+  if (poolError) throw new Error(poolError);
   if (pool) return pool;
-  pool = new Pool({ connectionString: dbUrl(), max: 5, idleTimeoutMillis: 10_000, connectionTimeoutMillis: 10_000, ssl: { rejectUnauthorized: false }, application_name: "oligens-detector" });
-  pool.on("error", e => console.error("[database] idle client error", e));
+  try {
+    pool = new Pool({ connectionString: dbUrl(), max: 5, idleTimeoutMillis: 10_000, connectionTimeoutMillis: 10_000, ssl: { rejectUnauthorized: false }, application_name: "oligens-detector" });
+    pool.on("error", e => console.error("[database] idle client error", e));
+  } catch (error) {
+    poolError = error instanceof Error ? error.message : "Database initialization failed.";
+    throw error;
+  }
   return pool;
 }
 async function query<T extends QueryResultRow = QueryResultRow>(text: string, values: unknown[] = []) { return getPool().query<T>(text, values); }
@@ -57,4 +64,38 @@ async function institutionalDatabases(req: VercelRequest, res: VercelResponse) {
 async function reports(req: VercelRequest, res: VercelResponse) { try { const user = await getUser(req); if (!user) return res.status(401).json({ error: "Authentification requise." }); if (req.method === "GET") { const result = await query(`SELECT id,analysis_id,report_type,file_url,report_data,created_at FROM reports WHERE user_id=$1 ORDER BY created_at DESC LIMIT 100`, [user.id]); return res.status(200).json({ reports: result.rows }); } return res.status(405).json({ error: "Méthode non autorisée" }); } catch (error) { console.error("[reports] error", error); return res.status(503).json({ error: "Rapports temporairement indisponibles.", code: "REPORTS_UNAVAILABLE" }); } }
 async function stats(req: VercelRequest, res: VercelResponse) { try { const user = await getUser(req); if (!user) return res.status(401).json({ error: "Authentification requise." }); if (req.method === "GET") { const [total, average, human, plagiarism, usage] = await Promise.all([query<{ count: string }>("SELECT COUNT(*)::text AS count FROM analyses WHERE user_id=$1", [user.id]),query<{ value: string }>("SELECT COALESCE(AVG(ai_score),0)::text AS value FROM analyses WHERE user_id=$1", [user.id]),query<{ value: string }>("SELECT COALESCE(AVG(human_score),0)::text AS value FROM analyses WHERE user_id=$1", [user.id]),query<{ value: string }>("SELECT COALESCE(AVG(plagiarism_score),0)::text AS value FROM analyses WHERE user_id=$1", [user.id]),query<{ count: string }>("SELECT COUNT(*)::text AS count FROM usage_events WHERE user_id=$1", [user.id])]); return res.status(200).json({ totalAnalyses: Number(total.rows[0]?.count ?? 0), averageAiScore: Number(average.rows[0]?.value ?? 0), averageHumanScore: Number(human.rows[0]?.value ?? 0), averagePlagiarismScore: Number(plagiarism.rows[0]?.value ?? 0), usageEvents: Number(usage.rows[0]?.count ?? 0) }); } return res.status(405).json({ error: "Méthode non autorisée" }); } catch (error) { console.error("[stats] error", error); return res.status(503).json({ error: "Statistiques temporairement indisponibles.", code: "STATS_UNAVAILABLE" }); } }
 
-export default async function handler(req: VercelRequest, res: VercelResponse) { const raw = req.query.all; const parts = Array.isArray(raw) ? raw : typeof raw === "string" ? raw.split("/") : []; const path = parts.filter(Boolean).join("/"); switch (path) { case "detect": return detectHandler(req,res); case "humanize": return humanizeHandler(req,res); case "settings": return settingsHandler(req,res); case "copyleaks/scan": return copyleaksScanHandler(req,res); case "webhooks/zakapro": return zakaproWebhookHandler(req,res); case "auth/me": return authMe(req,res); case "auth/signin": return authSignin(req,res); case "auth/signout": return authSignout(req,res); case "auth/signup": return authSignup(req,res); case "auth/verify": return authVerify(req,res); case "analyses": return analyses(req,res); case "analyses/create": return analysisCreate(req,res); case "institutional-databases": return institutionalDatabases(req,res); case "reports": return reports(req,res); case "stats": return stats(req,res); default: return res.status(404).json({ error: "API route not found", path }); } }
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  try {
+    const raw = req.query.all;
+    const parts = Array.isArray(raw) ? raw : typeof raw === "string" ? raw.split("/") : [];
+    const path = parts.filter(Boolean).join("/");
+    switch (path) {
+      case "detect": return detectHandler(req, res);
+      case "humanize": return humanizeHandler(req, res);
+      case "settings": return settingsHandler(req, res);
+      case "copyleaks/scan": return copyleaksScanHandler(req, res);
+      case "webhooks/zakapro": return zakaproWebhookHandler(req, res);
+      case "auth/me": return authMe(req, res);
+      case "auth/signin": return authSignin(req, res);
+      case "auth/signout": return authSignout(req, res);
+      case "auth/signup": return authSignup(req, res);
+      case "auth/verify": return authVerify(req, res);
+      case "analyses": return analyses(req, res);
+      case "analyses/create": return analysisCreate(req, res);
+      case "institutional-databases": return institutionalDatabases(req, res);
+      case "reports": return reports(req, res);
+      case "stats": return stats(req, res);
+      default: return res.status(404).json({ error: "API route not found", path });
+    }
+  } catch (error) {
+    console.error("[api] unhandled route error", error);
+    const message = error instanceof Error ? error.message : "Service API indisponible.";
+    if (message.includes("AUTH_SECRET")) {
+      return res.status(503).json({ error: "Authentification non configurée sur le serveur.", code: "AUTH_SECRET_NOT_CONFIGURED" });
+    }
+    if (/DATABASE_URL|POSTGRES_URL|ENOTFOUND|ECONNREFUSED|ETIMEDOUT|certificate|SSL|connection/i.test(message)) {
+      return res.status(503).json({ error: "Base de données temporairement indisponible.", code: "DATABASE_UNAVAILABLE" });
+    }
+    return res.status(500).json({ error: "Erreur interne du service API.", code: "API_INTERNAL_ERROR" });
+  }
+}
