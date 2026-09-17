@@ -1,8 +1,19 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import jwt from "jsonwebtoken";
+import crypto from "node:crypto";
 import { runPythonDetectorPort } from "../../lib/engines/pythonPort/detectorEngine";
 
 const COOKIE = "oligens_session";
+
+type JwtPayload = {
+  sub?: string;
+  iss?: string;
+  exp?: number;
+};
+
+function base64UrlDecode(value: string): Buffer {
+  const normalized = value.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(value.length / 4) * 4, "=");
+  return Buffer.from(normalized, "base64");
+}
 
 function authenticated(req: VercelRequest): boolean {
   const secret = process.env.AUTH_SECRET?.trim();
@@ -11,8 +22,30 @@ function authenticated(req: VercelRequest): boolean {
     .map(part => part.trim())
     .find(part => part.startsWith(`${COOKIE}=`))
     ?.slice(COOKIE.length + 1);
+
   if (!secret || secret.length < 32 || !token) return false;
-  try { jwt.verify(token, secret, { issuer: "oligens-detector" }); return true; } catch { return false; }
+
+  try {
+    const pieces = token.split(".");
+    if (pieces.length !== 3) return false;
+    const [encodedHeader, encodedPayload, encodedSignature] = pieces;
+    const header = JSON.parse(base64UrlDecode(encodedHeader).toString("utf8")) as { alg?: string; typ?: string };
+    if (header.alg !== "HS256") return false;
+
+    const expected = crypto
+      .createHmac("sha256", secret)
+      .update(`${encodedHeader}.${encodedPayload}`)
+      .digest();
+    const actual = base64UrlDecode(encodedSignature);
+    if (actual.length !== expected.length || !crypto.timingSafeEqual(actual, expected)) return false;
+
+    const payload = JSON.parse(base64UrlDecode(encodedPayload).toString("utf8")) as JwtPayload;
+    if (payload.iss !== "oligens-detector") return false;
+    if (payload.exp !== undefined && (!Number.isFinite(payload.exp) || payload.exp <= Math.floor(Date.now() / 1000))) return false;
+    return typeof payload.sub === "string" && payload.sub.length > 0;
+  } catch {
+    return false;
+  }
 }
 
 function language(value: unknown, text: string): "fr" | "en" | "mixte" {
@@ -48,9 +81,10 @@ function buildAnalysis(text: string, detector: ReturnType<typeof runPythonDetect
     ["Python-port — variabilité ponctuation", features.punctuationVariability / 100, features.punctuationVariability / 100],
   ].map(([nom, z_score, contribution]) => ({ nom: String(nom), z_score: Number(z_score), contribution: Number(contribution) }));
 
+  const totalHits = Object.values(features.signatureHits).reduce((a, b) => a + b, 0);
   const models = Object.entries(features.signatureHits)
     .filter(([, hits]) => hits > 0)
-    .map(([model, hits]) => ({ model, vendor: model, share: hits / Math.max(1, Object.values(features.signatureHits).reduce((a, b) => a + b, 0)) }));
+    .map(([model, hits]) => ({ model, vendor: model, share: hits / Math.max(1, totalHits) }));
 
   return {
     probabilite_IA: Number(ai.toFixed(4)),
@@ -123,17 +157,23 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
     });
   } catch (error) {
     console.error("[detect] Python-port TypeScript engine error", error);
+    const fallback = {
+      score: 0,
+      probability: 0,
+      engine: "python-detector-typescript-port" as const,
+      features: {
+        signatureScore: 0, entropyDiversityIndex: 0, verbDiversity: 0, hedgingPhrases: 0,
+        transitionMarkers: 0, repetitionPatterns: 0, avgSentenceComplexity: 0, punctuationVariability: 0,
+        overallAiProbability: 0, signatureHits: {},
+      },
+    };
     return res.status(200).json({
       success: true,
       status: "fallback",
       score: 0,
       is_ai_generated: false,
       confidence_score: 0,
-      analysis: buildAnalysis(text, { score: 0, probability: 0, engine: "python-detector-typescript-port", features: {
-        signatureScore: 0, entropyDiversityIndex: 0, verbDiversity: 0, hedgingPhrases: 0,
-        transitionMarkers: 0, repetitionPatterns: 0, avgSentenceComplexity: 0, punctuationVariability: 0,
-        overallAiProbability: 0, signatureHits: {},
-      }}),
+      analysis: buildAnalysis(text, fallback),
       engine: "python-detector-typescript-port",
       engine_used: "python-detector-typescript-port",
       analysis_mode: "safe_fallback",
