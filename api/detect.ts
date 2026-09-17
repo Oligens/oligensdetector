@@ -25,14 +25,22 @@ type DetectionMetrics = {
   unique_words: number;
   lexical_diversity: number;
   patterns_detected: string[];
+  ai_patterns_detected: string[];
 };
 
-type DetectionResponse = {
-  success: boolean;
+type DetectionCore = {
   is_ai_generated: boolean;
   confidence_score: number;
   metrics: DetectionMetrics;
   engine_used: typeof ENGINE_USED;
+};
+
+type DetectionResponse = DetectionCore & {
+  success: boolean;
+  status: "success" | "fallback" | "error";
+  data: DetectionCore;
+  result: string;
+  timestamp: string;
   fallback?: boolean;
   error?: string;
 };
@@ -83,12 +91,28 @@ function calculateConfidence(totalWords: number, lexicalDiversity: number, patte
     Math.max(0, Math.min(1, (0.58 - lexicalDiversity) / 0.30)) *
     lengthFactor *
     0.35;
-  return Math.round(Math.min(Math.max(patternScore + lowDiversitySignal, 0), 1) * 10000) / 10000;
+  return Math.round(Math.min(Math.max(patternScore + lowDiversitySignal, 0), 1) * 100) / 100;
+}
+
+function buildResponse(core: DetectionCore, success = true, status: "success" | "fallback" | "error" = "success", error?: string): DetectionResponse {
+  const result = core.is_ai_generated ? "Contenu généré par IA" : "Contenu d'origine humaine";
+  return {
+    success,
+    status,
+    data: core,
+    is_ai_generated: core.is_ai_generated,
+    confidence_score: core.confidence_score,
+    metrics: core.metrics,
+    engine_used: core.engine_used,
+    result,
+    timestamp: new Date().toISOString(),
+    ...(status !== "success" ? { fallback: true } : {}),
+    ...(error ? { error } : {}),
+  };
 }
 
 function createFallback(reason?: string): DetectionResponse {
-  return {
-    success: false,
+  const core: DetectionCore = {
     is_ai_generated: false,
     confidence_score: 0,
     metrics: {
@@ -96,11 +120,11 @@ function createFallback(reason?: string): DetectionResponse {
       unique_words: 0,
       lexical_diversity: 0,
       patterns_detected: [],
+      ai_patterns_detected: [],
     },
     engine_used: ENGINE_USED,
-    fallback: true,
-    ...(reason ? { error: reason } : {}),
   };
+  return buildResponse(core, false, "fallback", reason);
 }
 
 function analyzeText(text: string): DetectionResponse {
@@ -110,19 +134,22 @@ function analyzeText(text: string): DetectionResponse {
   const lexicalDiversity = calculateLexicalDiversity(words);
   const patternScore = calculatePatternScore(text, patternsDetected);
   const confidenceScore = calculateConfidence(words.length, lexicalDiversity, patternScore);
+  const isAIGenerated = words.length >= MIN_TEXT_LENGTH && confidenceScore >= 0.5;
 
-  return {
-    success: true,
-    is_ai_generated: words.length >= MIN_TEXT_LENGTH && confidenceScore >= 0.5,
+  const core: DetectionCore = {
+    is_ai_generated: isAIGenerated,
     confidence_score: confidenceScore,
     metrics: {
       total_words: words.length,
       unique_words: uniqueWords.size,
-      lexical_diversity: Math.round(lexicalDiversity * 10000) / 10000,
+      lexical_diversity: Math.round(lexicalDiversity * 1000) / 1000,
       patterns_detected: patternsDetected,
+      ai_patterns_detected: patternsDetected,
     },
     engine_used: ENGINE_USED,
   };
+
+  return buildResponse(core);
 }
 
 export default function handler(req: VercelRequest, res: VercelResponse): void {
