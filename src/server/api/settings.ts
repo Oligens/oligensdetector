@@ -3,7 +3,7 @@ import jwt from "jsonwebtoken";
 import { Pool } from "pg";
 import { maskSecret } from "../../lib/security/secretMask";
 const COOKIE = "oligens_session";
-function databaseUrl(){const value=process.env.DATABASE_URL?.trim();if(!value)throw new Error("DATABASE_URL is not configured.");try{const url=new URL(value);const sslmode=url.searchParams.get("sslmode");if(sslmode&&sslmode!=="verify-full")url.searchParams.set("sslmode","verify-full");return url.toString();}catch{return value;}}
+function databaseUrl(){const value=process.env.DATABASE_URL?.trim()||process.env.DIRECT_DATABASE_URL?.trim();if(!value)throw new Error("DATABASE_URL/DIRECT_DATABASE_URL is not configured.");try{const url=new URL(value);const sslmode=url.searchParams.get("sslmode");if(sslmode&&sslmode!=="verify-full")url.searchParams.set("sslmode","verify-full");return url.toString();}catch{return value;}}
 let pool:Pool|undefined;function getPool(){if(pool)return pool;pool=new Pool({connectionString:databaseUrl(),max:5,idleTimeoutMillis:10_000,connectionTimeoutMillis:10_000,ssl:{rejectUnauthorized:true},application_name:"oligens-detector-settings"});pool.on("error",error=>console.error("[settings] idle client error",error));return pool;}
 function token(req:VercelRequest){return(req.headers.cookie??"").split(";").map(v=>v.trim()).find(v=>v.startsWith(`${COOKIE}=`))?.slice(COOKIE.length+1);}
 async function userId(req:VercelRequest){const secret=process.env.AUTH_SECRET?.trim();if(!secret||secret.length<32)throw new Error("AUTH_SECRET is not configured.");const raw=token(req);if(!raw)return null;try{const payload=jwt.verify(raw,secret,{issuer:"oligens-detector"}) as jwt.JwtPayload;return typeof payload.sub==="string"?payload.sub:null;}catch{return null;}}
