@@ -1,9 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { formatHTG, PLANS, type BillingPeriod, type PlanId } from "../lib/billing/plans";
 import { useAuth } from "../state/AuthContext";
 
-const ZAKAPRO_APP_KEY = "zk_pub_z471ugkkmt04kzwv4lgo";
 const ZAKAPRO_BASE = "https://zakapro.vercel.app";
 const ZAKAPRO_HUB = `${ZAKAPRO_BASE}/#/hub/app_vl2e7enq`;
 
@@ -26,6 +25,8 @@ export default function SubscriptionPage() {
   const [period, setPeriod] = useState<BillingPeriod>("month");
   const [plan, setPlan] = useState<Exclude<PlanId, "free">>("pro");
   const [error, setError] = useState<string | null>(null);
+  const [zakaproPublicKey, setZakaproPublicKey] = useState<string | null>(null);
+  useEffect(() => { void fetch("/api/config", { credentials: "include" }).then(response => response.json()).then(data => setZakaproPublicKey(typeof data.zakaproPublicKey === "string" ? data.zakaproPublicKey : null)).catch(() => setZakaproPublicKey(null)); }, []);
   const selectedUrl = ZAKAPRO_PLANS[plan][period];
   const selectedAmount = ZAKAPRO_AMOUNT[plan][period];
 
@@ -46,7 +47,7 @@ export default function SubscriptionPage() {
         <button type="button" onClick={openCheckout} className="btn-gold mt-5 flex w-full justify-center px-4 py-3">Payer {plan.toUpperCase()} · {formatHTG(selectedAmount)}</button>
         <p className="mt-2 text-center text-[10.5px] text-amber-200">{WARNING}</p>{error&&<p className="mt-3 text-xs text-rose-300">{error}</p>}
         <p className="mt-3 text-[11px] text-ink-500">Plan actuel : <span className="text-gold-300">{subscription.plan}</span>. Activation uniquement après confirmation du paiement par ZakaPro.</p>
-        <p className="mt-3 text-[10px] text-ink-500">Clé publique ZakaPro : {ZAKAPRO_APP_KEY}</p>
+        {zakaproPublicKey && <p className="mt-3 text-[10px] text-ink-500">Clé publique ZakaPro : {zakaproPublicKey}</p>}
       </section>
     </div>
   );

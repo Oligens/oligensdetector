@@ -8,6 +8,30 @@
     {
       "source": "/api/auth/:route*",
       "destination": "/api/[...all]?all=auth/:route*"
+    },
+    {
+      "source": "/api/stats",
+      "destination": "/api/[...all]?all=stats"
+    },
+    {
+      "source": "/api/institutional-databases",
+      "destination": "/api/[...all]?all=institutional-databases"
+    },
+    {
+      "source": "/api/reports",
+      "destination": "/api/[...all]?all=reports"
+    },
+    {
+      "source": "/api/analyses",
+      "destination": "/api/[...all]?all=analyses"
+    },
+    {
+      "source": "/api/config",
+      "destination": "/api/[...all]?all=config"
+    },
+    {
+      "source": "/api/extract",
+      "destination": "/api/[...all]?all=extract"
     }
   ],
   "headers": [
