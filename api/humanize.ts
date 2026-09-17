@@ -1,10 +1,10 @@
-import handler from "../src/server/api/humanize";
+import handler from "../src/server/api/humanizePythonPort";
 
 /**
  * Explicit Vercel Function for POST /api/humanize.
  *
- * The project uses Vite rather than Next.js, therefore the implementation in
- * src/server/api is not discovered as a public API route by Vercel. This
- * adapter exposes the exact /api/humanize URL used by the frontend.
+ * The public route now uses the native TypeScript port of the repository's
+ * Python humanizer contract. The legacy humanizer route remains intact for
+ * compatibility and emergency fallback.
  */
 export default handler;
