@@ -1,4 +1,8 @@
-import { countWords, type FullAnalysisResult, type RunOptions } from "./heuristicEngine";
+import type { FullAnalysisResult, RunOptions } from "./heuristicEngine";
+
+function countWords(text: string): number {
+  return (text.toLocaleLowerCase().match(/[\p{L}\p{N}']+/gu) ?? []).length;
+}
 
 /** Canonical browser entry point: every UI analysis uses /api/detect. */
 export async function analyzeText(text: string, options?: RunOptions): Promise<FullAnalysisResult> {
@@ -14,8 +18,6 @@ export async function analyzeText(text: string, options?: RunOptions): Promise<F
   const data = await response.json().catch(() => ({} as Record<string, unknown>));
   if (!response.ok || !data.analysis) throw new Error(typeof data.error === "string" ? data.error : `Le service de détection a répondu ${response.status}.`);
   const result = data.analysis as FullAnalysisResult;
-  // The legacy result type only permits "direct" | "worker". The actual
-  // execution is server-backed, so "direct" is the closest compatible mode.
   result.processing = { mode: "direct", durationMs: Math.round(performance.now() - startedAt), words: countWords(clean) };
   return result;
 }
