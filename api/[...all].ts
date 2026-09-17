@@ -4,11 +4,6 @@ import jwt from "jsonwebtoken";
 import crypto from "node:crypto";
 import nodemailer from "nodemailer";
 import { Pool, type PoolClient, type QueryResultRow } from "pg";
-import detectHandler from "../src/server/api/detect";
-import humanizeHandler from "../src/server/api/humanize";
-import settingsHandler from "../src/server/api/settings";
-import copyleaksScanHandler from "../src/server/api/copyleaksScan";
-import zakaproWebhookHandler from "../src/server/api/zakaproWebhook";
 
 const COOKIE = "oligens_session";
 const MAX_BYTES = 25 * 1024 * 1024;
@@ -71,11 +66,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const parts = Array.isArray(raw) ? raw : typeof raw === "string" ? raw.split("/") : [];
     const path = parts.filter(Boolean).join("/");
     switch (path) {
-      case "detect": return detectHandler(req, res);
-      case "humanize": return humanizeHandler(req, res);
-      case "settings": return settingsHandler(req, res);
-      case "copyleaks/scan": return copyleaksScanHandler(req, res);
-      case "webhooks/zakapro": return zakaproWebhookHandler(req, res);
+      case "detect": return (await import("../src/server/api/detect")).default(req, res);
+      case "humanize": return (await import("../src/server/api/humanize")).default(req, res);
+      case "settings": return (await import("../src/server/api/settings")).default(req, res);
+      case "copyleaks/scan": return (await import("../src/server/api/copyleaksScan")).default(req, res);
+      case "webhooks/zakapro": return (await import("../src/server/api/zakaproWebhook")).default(req, res);
       case "auth/me": return authMe(req, res);
       case "auth/signin": return authSignin(req, res);
       case "auth/signout": return authSignout(req, res);
