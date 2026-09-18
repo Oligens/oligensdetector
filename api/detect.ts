@@ -39,38 +39,122 @@ function calculateDetector(text: string) {
   const unique = new Set(tokens).size;
   const ttr = tokens.length ? unique / tokens.length : 0;
   const lengths = sents.map(s => tokenize(s).length).filter(Boolean);
-  const mean = lengths.length ? lengths.reduce((a,b)=>a+b,0)/lengths.length : 0;
-  const variance = lengths.length ? lengths.reduce((a,b)=>a+(b-mean)**2,0)/lengths.length : 0;
-  const burstiness = mean ? Math.sqrt(variance)/mean : 0;
+  const mean = lengths.length ? lengths.reduce((a, b) => a + b, 0) / lengths.length : 0;
+  const variance = lengths.length ? lengths.reduce((a, b) => a + (b - mean) ** 2, 0) / lengths.length : 0;
+  const sd = Math.sqrt(variance);
+  const burstiness = mean ? sd / mean : 0;
   const signatureHits = countMatches(text, signatures);
-  const hedgingHits = countMatches(text, [/\b(perhaps|maybe|possibly|likely|generally|typically|often|could be|might be|peut-être|probablement|généralement|souvent|pourrait)\b/giu]);
-  const connectorHits = countMatches(text, [/\b(therefore|consequently|furthermore|moreover|however|nevertheless|additionally|therefore|ainsi|cependant|néanmoins|donc|par conséquent|de plus)\b/giu]);
+  const hedgingHits = countMatches(text, [/\\b(perhaps|maybe|possibly|likely|generally|typically|often|could be|might be|peut-être|probablement|généralement|souvent|pourrait)\\b/giu]);
+  const connectorHits = countMatches(text, [/\\b(therefore|consequently|furthermore|moreover|however|nevertheless|additionally|therefore|ainsi|cependant|néanmoins|donc|par conséquent|de plus)\\b/giu]);
+
+  // Signaux statistiques : ils ne dépendent pas de mots-clés IA particuliers.
   const repeated = tokens.length ? 1 - ttr : 0;
-  const uniformity = mean ? clamp(1 - Math.min(1, burstiness * 1.8)) : 0;
-  // Les indices de diversité décrivent le style ; ils ne doivent pas être
-  // interprétés comme une preuve d'origine humaine. Le score combine donc
-  // plusieurs familles de signaux et applique une calibration non linéaire.
-  const signatureScore = clamp(signatureHits / Math.max(1, tokens.length / 140));
-  const connectorScore = clamp(connectorHits / Math.max(1, tokens.length / 110));
-  const repetitionScore = clamp(repeated * 0.55);
-  const uniformityScore = uniformity;
-  const lowBurstScore = clamp((0.34 - burstiness) / 0.34);
-  const hedgeScore = clamp(hedgingHits / Math.max(1, tokens.length / 130));
-  const structuralEvidence = clamp(
-    signatureScore * 0.32 +
-    connectorScore * 0.16 +
-    repetitionScore * 0.12 +
-    uniformityScore * 0.18 +
-    lowBurstScore * 0.14 +
-    hedgeScore * 0.08,
+  const sentenceUniformity = mean ? clamp(1 - Math.min(1, burstiness * 2.2)) : 0;
+  const shortLongMix = lengths.length > 1
+    ? clamp(sd / Math.max(1, mean * 0.75))
+    : 0;
+  const punctuation = text.match(/[,:;!?()[\\]"“”«»—–-]/gu) ?? [];
+  const punctuationDensity = tokens.length ? punctuation.length / tokens.length : 0;
+  const punctuationRegularity = punctuationDensity > 0
+    ? clamp(1 - Math.abs(punctuationDensity - 0.065) / 0.065)
+    : 0;
+
+  // Mesure une régularité locale des longueurs de phrases : les textes très
+  // mécaniques ont souvent moins de variation que des textes naturels longs.
+  const adjacentSimilarity = lengths.length > 1
+    ? lengths.slice(1).reduce((sum, value, i) => {
+        const previous = lengths[i];
+        return sum + (1 - Math.min(1, Math.abs(value - previous) / Math.max(1, mean)));
+      }, 0) / (lengths.length - 1)
+    : 0;
+
+  // Répartition des mots fonctionnels : utile comme signal secondaire,
+  // jamais comme preuve isolée.
+  const functionWords = new Set([
+    "le","la","les","un","une","des","de","du","au","aux","et","ou","mais","donc","or","ni",
+    "car","que","qui","ce","cette","ces","dans","pour","par","sur","avec","sans","en","à",
+    "the","a","an","of","and","or","but","that","which","in","for","with","on","to",
+  ]);
+  const functionRatio = tokens.length
+    ? tokens.filter(token => functionWords.has(token)).length / tokens.length
+    : 0;
+  const functionBalance = clamp(1 - Math.abs(functionRatio - 0.43) / 0.20);
+
+  // Les expressions prédéfinies deviennent un signal secondaire. Le moteur
+  // ne doit pas confondre la présence d'un vocabulaire "académique" avec l'IA.
+  const signatureScore = clamp(signatureHits / Math.max(1, tokens.length / 180));
+  const connectorScore = clamp(connectorHits / Math.max(1, tokens.length / 150));
+  const hedgeScore = clamp(hedgingHits / Math.max(1, tokens.length / 160));
+
+  // Signaux statistiques combinés. La diversité lexicale seule n'augmente
+  // pas le risque IA : elle sert ici à contextualiser les autres mesures.
+  const repetitionScore = clamp(repeated / 0.72);
+  const uniformityScore = sentenceUniformity;
+  const lowBurstScore = clamp((0.24 - burstiness) / 0.24);
+  const adjacentScore = adjacentSimilarity;
+  const regularityEvidence = clamp(
+    uniformityScore * 0.24 +
+    lowBurstScore * 0.18 +
+    adjacentScore * 0.16 +
+    repetitionScore * 0.10 +
+    punctuationRegularity * 0.08 +
+    functionBalance * 0.06 +
+    signatureScore * 0.10 +
+    connectorScore * 0.05 +
+    hedgeScore * 0.03,
   );
-  // Une évidence faible reste faible ; une accumulation de signaux cohérents
-  // peut en revanche dépasser le plancher artificiel observé précédemment.
-  const evidenceBoost = Math.max(0, structuralEvidence - 0.28) * 0.55;
-  const ai = clamp(structuralEvidence + evidenceBoost);
-  const calibratedAi = tokens.length < 80 ? ai * 0.72 : tokens.length < 180 ? ai * 0.88 : ai;
+
+  // Une seule anomalie ne doit jamais produire un score élevé. Plusieurs
+  // familles indépendantes doivent converger avant d'augmenter fortement.
+  const independentEvidence = [
+    uniformityScore,
+    lowBurstScore,
+    adjacentScore,
+    repetitionScore,
+    signatureScore,
+    connectorScore,
+  ].sort((a, b) => b - a);
+  const consensus = independentEvidence.slice(0, 4).reduce((sum, value) => sum + value, 0) / 4;
+  const agreement = clamp(1 - Math.abs(independentEvidence[0] - independentEvidence[3]));
+  const rawAi = clamp(regularityEvidence * (0.72 + consensus * 0.28) * (0.82 + agreement * 0.18));
+
+  // Calibration prudente des textes courts : moins de données => moins de
+  // certitude. Pour les textes longs, aucun bonus artificiel n'est ajouté.
+  const calibratedAi = tokens.length < 80
+    ? rawAi * 0.55
+    : tokens.length < 180
+      ? rawAi * 0.78
+      : tokens.length < 350
+        ? rawAi * 0.92
+        : rawAi;
+
   const confidence = tokens.length < 100 ? "Faible" : tokens.length < 650 ? "Moyenne" : "Élevée";
-  return { tokens, sents, ttr, burstiness, signatureHits, hedgingHits, connectorHits, ai: calibratedAi, confidence, signatureScore, connectorScore, repetitionScore, uniformity, lowBurstScore, hedgeScore, structuralEvidence };
+  return {
+    tokens,
+    sents,
+    ttr,
+    burstiness,
+    signatureHits,
+    hedgingHits,
+    connectorHits,
+    ai: calibratedAi,
+    confidence,
+    signatureScore,
+    connectorScore,
+    repetitionScore,
+    uniformity: sentenceUniformity,
+    lowBurstScore,
+    hedgeScore,
+    structuralEvidence: regularityEvidence,
+    shortLongMix,
+    punctuationDensity,
+    punctuationRegularity,
+    adjacentSimilarity,
+    functionRatio,
+    functionBalance,
+    consensus,
+    agreement,
+  };
 }
 
 export default async function detect(req: VercelRequest, res: VercelResponse) {
@@ -104,6 +188,11 @@ export default async function detect(req: VercelRequest, res: VercelResponse) {
         signatureScore: Math.min(100, local.signatureScore * 100),
         entropyDiversityIndex: Math.min(100, local.ttr * 100),
         verbDiversity: Math.min(100, local.ttr * 100),
+        sentenceUniformity: local.uniformity * 100,
+        adjacentSentenceSimilarity: local.adjacentSimilarity * 100,
+        punctuationRegularity: local.punctuationRegularity * 100,
+        functionWordBalance: local.functionBalance * 100,
+        consensusScore: local.consensus * 100,
         hedgingPhrases: Math.min(100, local.hedgingHits * 10),
         transitionMarkers: Math.min(100, local.connectorScore * 100),
         repetitionPatterns: Math.min(100, local.repetitionScore * 100),
@@ -137,8 +226,10 @@ export default async function detect(req: VercelRequest, res: VercelResponse) {
       genre_detecte: "generic",
       rapport_detaille: [
         ["COJ — signature IA", features.signatureScore / 100, features.signatureScore / 100],
-        ["COJ — diversité entropique", features.entropyDiversityIndex / 100, (100 - features.entropyDiversityIndex) / 100],
-        ["COJ — diversité verbale", features.verbDiversity / 100, (100 - features.verbDiversity) / 100],
+        ["COJ — régularité des phrases", features.sentenceUniformity / 100, features.sentenceUniformity / 100],
+        ["COJ — similarité entre phrases", features.adjacentSentenceSimilarity / 100, features.adjacentSentenceSimilarity / 100],
+        ["COJ — régularité de ponctuation", features.punctuationRegularity / 100, features.punctuationRegularity / 100],
+        ["COJ — équilibre des mots fonctionnels", features.functionWordBalance / 100, features.functionWordBalance / 100],
         ["COJ — marqueurs de prudence", features.hedgingPhrases / 100, features.hedgingPhrases / 100],
         ["COJ — transitions", features.transitionMarkers / 100, features.transitionMarkers / 100],
         ["COJ — répétitions", features.repetitionPatterns / 100, features.repetitionPatterns / 100],
@@ -146,7 +237,7 @@ export default async function detect(req: VercelRequest, res: VercelResponse) {
         ["COJ — variabilité ponctuation", features.punctuationVariability / 100, features.punctuationVariability / 100],
       ].map(([nom, z_score, contribution]) => ({
         nom: String(nom), z_score: Number(z_score), contribution: Number(contribution)
-      })),
+      })).sort((a, b) => b.contribution - a.contribution),
       decision_precaution: ai >= 0.75
         ? "Présence forte d’indices compatibles avec une génération IA."
         : ai >= 0.5
