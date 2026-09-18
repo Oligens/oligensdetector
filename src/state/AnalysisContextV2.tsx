@@ -153,36 +153,9 @@ export function AnalysisProvider({ children }: { children: ReactNode }) {
         if (runId !== runIdRef.current) return;
         const mapped = mapAnalysis(analysis, payload.name);
 
-        // Copyleaks is a server-side corroboration layer. It never receives the API key
-        // from the browser. If it is not configured or temporarily unavailable, the local
-        // Oligens analysis remains usable and is still persisted.
-        try {
-          const verification = await fetch("/api/copyleaks/scan", {
-            method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ text, language: analysis.langue === "fr" ? "fr" : analysis.langue === "en" ? "en" : undefined, scanId: `oligens-${Date.now()}-${runId}` }),
-          });
-          const verificationData = await verification.json().catch(() => ({}));
-          if (verification.ok && verificationData.result) {
-            const external = verificationData.result as CopyleaksResult;
-            mapped.copyleaks = external;
-            // In live production, an independent high-confidence provider result is
-            // not allowed to be hidden by a much lower local score. Sandbox results
-            // remain observational and never alter the Oligens score.
-            if (!external.sandbox) {
-              const externalAi = Math.round(external.aiProbability * 100);
-              if (externalAi > mapped.ia) {
-                mapped.ia = externalAi;
-                mapped.human = Math.max(0, 100 - Math.min(100, mapped.ia + mapped.plagiat + mapped.refs));
-                mapped.passages = Math.max(mapped.passages, mapped.ia >= 35 ? 2 : 0);
-              }
-            }
-          } else if (verificationData.code !== "COPYLEAKS_NOT_CONFIGURED") {
-            console.warn("[AnalysisContext] Copyleaks verification unavailable", verificationData);
-          }
-        } catch (verificationError) {
-          console.warn("[AnalysisContext] Copyleaks verification skipped", verificationError);
-        }
-
+        // La vérification externe Copyleaks est définitivement désactivée.
+        // Le moteur local Oligens est l'unique source d'analyse en production.
+        // Aucun appel réseau externe n'est effectué pendant une analyse.
         const save = await fetch("/api/analyses/create", {
           method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ fileName: payload.name, sizeKo: payload.sizeKo, result: mapped }),
