@@ -116,17 +116,20 @@ function calculateDetector(text: string) {
   ].sort((a, b) => b - a);
   const consensus = independentEvidence.slice(0, 4).reduce((sum, value) => sum + value, 0) / 4;
   const agreement = clamp(1 - Math.abs(independentEvidence[0] - independentEvidence[3]));
-  const rawAi = clamp(regularityEvidence * (0.72 + consensus * 0.28) * (0.82 + agreement * 0.18));
+  const consensusMultiplier = 0.72 + consensus * 0.28;
+  const agreementMultiplier = 0.82 + agreement * 0.18;
+  const rawAi = clamp(regularityEvidence * consensusMultiplier * agreementMultiplier);
 
   // Calibration prudente des textes courts : moins de données => moins de
   // certitude. Pour les textes longs, aucun bonus artificiel n'est ajouté.
-  const calibratedAi = tokens.length < 80
-    ? rawAi * 0.55
+  const calibrationMultiplier = tokens.length < 80
+    ? 0.55
     : tokens.length < 180
-      ? rawAi * 0.78
+      ? 0.78
       : tokens.length < 350
-        ? rawAi * 0.92
-        : rawAi;
+        ? 0.92
+        : 1;
+  const calibratedAi = rawAi * calibrationMultiplier;
 
   const confidence = tokens.length < 100 ? "Faible" : tokens.length < 650 ? "Moyenne" : "Élevée";
   return {
@@ -208,6 +211,10 @@ export default async function detect(req: VercelRequest, res: VercelResponse) {
         perplexiteRelative: Math.min(1, local.ttr * 1.15),
       },
       engine: "coj-neuro-heuristic-typescript" as const,
+      words: wordCount,
+      characters: text.length,
+      sentences: sentenceCount,
+      durationMs,
     };
     const features = detector.features;
     const wordCount = text.match(/[\p{L}\p{N}_']+/gu)?.length ?? 0;
@@ -219,25 +226,32 @@ export default async function detect(req: VercelRequest, res: VercelResponse) {
       .filter(([, hits]) => hits > 0)
       .map(([model, hits]) => ({ model, vendor: model, share: hits / Math.max(1, totalHits) }));
 
+    const factorDefinitions = [
+      ["COJ — régularité des phrases", local.uniformity, 0.24],
+      ["COJ — faible burstiness", local.lowBurstScore, 0.18],
+      ["COJ — similarité entre phrases", local.adjacentSimilarity, 0.16],
+      ["COJ — répétitions", local.repetitionScore, 0.10],
+      ["COJ — régularité de ponctuation", local.punctuationRegularity, 0.08],
+      ["COJ — équilibre des mots fonctionnels", local.functionBalance, 0.06],
+      ["COJ — signature IA", local.signatureScore, 0.10],
+      ["COJ — transitions", local.connectorScore, 0.05],
+      ["COJ — marqueurs de prudence", local.hedgeScore, 0.03],
+    ] as const;
+    const contributionMultiplier = consensusMultiplier * agreementMultiplier * calibrationMultiplier;
+    const factorDetails = factorDefinitions
+      .map(([nom, signal, weight]) => ({
+        nom,
+        z_score: Number(signal.toFixed(4)),
+        contribution: Number((signal * weight * contributionMultiplier).toFixed(4)),
+      }))
+      .sort((a, b) => b.contribution - a.contribution);
+
     const analysis = {
       probabilite_IA: Number(ai.toFixed(4)),
       intervalle_confiance_95: [Math.max(0, ai - 0.15), Math.min(1, ai + 0.15)] as [number, number],
       confiance_analyse: wordCount < 100 ? "Faible" : wordCount < 650 ? "Moyenne" : "Élevée",
       genre_detecte: "generic",
-      rapport_detaille: [
-        ["COJ — signature IA", features.signatureScore / 100, features.signatureScore / 100],
-        ["COJ — régularité des phrases", features.sentenceUniformity / 100, features.sentenceUniformity / 100],
-        ["COJ — similarité entre phrases", features.adjacentSentenceSimilarity / 100, features.adjacentSentenceSimilarity / 100],
-        ["COJ — régularité de ponctuation", features.punctuationRegularity / 100, features.punctuationRegularity / 100],
-        ["COJ — équilibre des mots fonctionnels", features.functionWordBalance / 100, features.functionWordBalance / 100],
-        ["COJ — marqueurs de prudence", features.hedgingPhrases / 100, features.hedgingPhrases / 100],
-        ["COJ — transitions", features.transitionMarkers / 100, features.transitionMarkers / 100],
-        ["COJ — répétitions", features.repetitionPatterns / 100, features.repetitionPatterns / 100],
-        ["COJ — complexité moyenne", features.avgSentenceComplexity / 100, features.avgSentenceComplexity / 100],
-        ["COJ — variabilité ponctuation", features.punctuationVariability / 100, features.punctuationVariability / 100],
-      ].map(([nom, z_score, contribution]) => ({
-        nom: String(nom), z_score: Number(z_score), contribution: Number(contribution)
-      })).sort((a, b) => b.contribution - a.contribution),
+      rapport_detaille: factorDetails,
       decision_precaution: ai >= 0.75
         ? "Présence forte d’indices compatibles avec une génération IA."
         : ai >= 0.5
