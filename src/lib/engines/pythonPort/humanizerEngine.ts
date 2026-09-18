@@ -135,7 +135,7 @@ class CyberTextHumanizer {
 
   public calculateLexicalDiversity(text: string): { entropy: number; ttr: number } {
     if (!text || typeof text !== "string") return { entropy: 0, ttr: 0 };
-    const words = text.toLocaleLowerCase().replace(/[^\\p{L}\\p{N}_'\\s]/gu," ").split(/\\s+/).filter(Boolean);
+    const words = text.toLocaleLowerCase().replace(/[^\p{L}\p{N}_'\s]/gu," ").split(/\s+/).filter(Boolean);
     if (!words.length) return { entropy: 0, ttr: 0 };
     const freq: Record<string,number> = {};
     words.forEach(word => { freq[word] = (freq[word] || 0) + 1; });
@@ -217,7 +217,7 @@ class CyberTextHumanizer {
     const detected=lang==="auto"?this.detectLanguage(text):lang;
     const connectors=detected==="fr"?this.FORMAL_CONNECTORS_FR:this.FORMAL_CONNECTORS_EN;
     for (const connector of connectors) result=result.replace(new RegExp("\\b"+connector+"\\b","gi"),"");
-    return result.replace(/\\s+/g," ").replace(/\\s([.!?])/g,"$1").trim();
+    return result.replace(/\s+/g," ").replace(/\s([.!?])/g,"$1").trim();
   }
 
   private addSentenceVariability(text:string,intensity:number):string {
@@ -252,7 +252,7 @@ class CyberTextHumanizer {
   private injectHesitations(text:string,intensity:number):string {
     const hesitations=[...this.HESITATIONS_FR,...this.HESITATIONS_EN];
     const out:string[]=[];
-    for(const word of text.split(/\\s+/).filter(Boolean)){
+    for(const word of text.split(/\s+/).filter(Boolean)){
       out.push(word);
       if(Math.random()<intensity*0.05 && Math.random()<0.65)
         out.push(hesitations[Math.floor(Math.random()*hesitations.length)]);
