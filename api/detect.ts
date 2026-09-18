@@ -184,6 +184,12 @@ export default async function detect(req: VercelRequest, res: VercelResponse) {
     // d’initialisation/import ne fasse jamais tomber la Vercel Function en 500.
     const local = calculateDetector(text);
     const ai = local.ai;
+    const wordCount = text.match(/[\p{L}\p{N}_']+/gu)?.length ?? 0;
+    const sentenceCount = text.split(/[.!?…]+|\n+/).map(s => s.trim()).filter(Boolean).length;
+    const calibrationMultiplier = wordCount < 80 ? 0.55 : wordCount < 180 ? 0.78 : wordCount < 350 ? 0.92 : 1;
+    const consensusMultiplier = 0.72 + local.consensus * 0.28;
+    const agreementMultiplier = 0.82 + local.agreement * 0.18;
+    const contributionMultiplier = consensusMultiplier * agreementMultiplier * calibrationMultiplier;
     const detector = {
       score: Math.round(ai * 100),
       probability: ai,
@@ -217,8 +223,6 @@ export default async function detect(req: VercelRequest, res: VercelResponse) {
       durationMs,
     };
     const features = detector.features;
-    const wordCount = text.match(/[\p{L}\p{N}_']+/gu)?.length ?? 0;
-    const sentenceCount = text.split(/[.!?…]+|\n+/).map(s => s.trim()).filter(Boolean).length;
     const language = detectLanguage(body.language, text);
     const durationMs = Date.now() - started;
     const totalHits = Object.values(features.signatureHits).reduce((a, b) => a + b, 0);
@@ -237,7 +241,6 @@ export default async function detect(req: VercelRequest, res: VercelResponse) {
       ["COJ — transitions", local.connectorScore, 0.05],
       ["COJ — marqueurs de prudence", local.hedgeScore, 0.03],
     ] as const;
-    const contributionMultiplier = consensusMultiplier * agreementMultiplier * calibrationMultiplier;
     const factorDetails = factorDefinitions
       .map(([nom, signal, weight]) => ({
         nom,
