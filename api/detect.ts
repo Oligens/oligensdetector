@@ -44,8 +44,8 @@ function calculateDetector(text: string) {
   const sd = Math.sqrt(variance);
   const burstiness = mean ? sd / mean : 0;
   const signatureHits = countMatches(text, signatures);
-  const hedgingHits = countMatches(text, [/\\b(perhaps|maybe|possibly|likely|generally|typically|often|could be|might be|peut-être|probablement|généralement|souvent|pourrait)\\b/giu]);
-  const connectorHits = countMatches(text, [/\\b(therefore|consequently|furthermore|moreover|however|nevertheless|additionally|therefore|ainsi|cependant|néanmoins|donc|par conséquent|de plus)\\b/giu]);
+  const hedgingHits = countMatches(text, [/\b(perhaps|maybe|possibly|likely|generally|typically|often|could be|might be|peut-être|probablement|généralement|souvent|pourrait)\b/giu]);
+  const connectorHits = countMatches(text, [/\b(therefore|consequently|furthermore|moreover|however|nevertheless|additionally|therefore|ainsi|cependant|néanmoins|donc|par conséquent|de plus)\b/giu]);
 
   // Signaux statistiques : ils ne dépendent pas de mots-clés IA particuliers.
   const repeated = tokens.length ? 1 - ttr : 0;
@@ -53,7 +53,7 @@ function calculateDetector(text: string) {
   const shortLongMix = lengths.length > 1
     ? clamp(sd / Math.max(1, mean * 0.75))
     : 0;
-  const punctuation = text.match(/[,:;!?()[\\]"“”«»—–-]/gu) ?? [];
+  const punctuation = text.match(/[,:;!?()"“”«»—–-]/gu) ?? [];
   const punctuationDensity = tokens.length ? punctuation.length / tokens.length : 0;
   const punctuationRegularity = punctuationDensity > 0
     ? clamp(1 - Math.abs(punctuationDensity - 0.065) / 0.065)
