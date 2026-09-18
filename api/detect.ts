@@ -1,21 +1,60 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-/**
- * ══════════════════════════════════════════════════════════════════════════════
- *  COJ AI DETECTION API
- *  Production adapter for the COJ Neuro-Heuristic TypeScript engine.
- *
- *  Author / Signature: COJ (Cleef Oligens Joseph)
- *  No Python subprocess, database, external AI API or Copyleaks request.
- * ══════════════════════════════════════════════════════════════════════════════
- */
+
+const clamp = (v: number, min = 0, max = 1) => Math.max(min, Math.min(max, Number.isFinite(v) ? v : min));
 
 function detectLanguage(value: unknown, text: string): "fr" | "en" | "mixte" {
   if (value === "fr" || value === "en") return value;
   const lower = text.toLocaleLowerCase();
-  const fr = (lower.match(/\b(le|la|les|des|une|est|dans|pour|avec|que|qui|et|du|au|aux)\b/gu) ?? []).length;
-  const en = (lower.match(/\b(the|and|of|to|is|in|for|with|that|this|are|from)\b/gu) ?? []).length;
+  const fr = (lower.match(/\b(le|la|les|des|une|est|dans|pour|avec|que|qui|et|du|au|aux|ce|cette|sur|pas)\b/gu) ?? []).length;
+  const en = (lower.match(/\b(the|and|of|to|is|in|for|with|that|this|are|from|the|not|on)\b/gu) ?? []).length;
   if (!fr && !en) return "mixte";
   return fr >= en * 2 ? "fr" : en >= fr * 2 ? "en" : "mixte";
+}
+
+function tokenize(text: string): string[] {
+  return text.toLocaleLowerCase().match(/[\p{L}\p{N}']+/gu) ?? [];
+}
+
+function sentences(text: string): string[] {
+  return text.split(/[.!?…]+|\n+/).map(s => s.trim()).filter(Boolean);
+}
+
+const signatures: RegExp[] = [
+  /\b(furthermore|additionally|in addition|moreover|however|nevertheless|in conclusion|to summarize|in summary)\b/giu,
+  /\b(it is important to note that|it should be noted that|it is worth noting that)\b/giu,
+  /\b(a comprehensive approach|holistic view|multifaceted|leveraging synergies|paradigm shift|disruptive innovation)\b/giu,
+  /\b(en conclusion|en outre|de plus|cependant|néanmoins|il est important de noter que|il convient de souligner)\b/giu,
+  /\b(approche globale|vision holistique|dans un premier temps|dans un second temps)\b/giu,
+];
+
+function countMatches(text: string, patterns: RegExp[]): number {
+  let total = 0;
+  for (const pattern of patterns) total += text.match(pattern)?.length ?? 0;
+  return total;
+}
+
+function calculateDetector(text: string) {
+  const tokens = tokenize(text);
+  const sents = sentences(text);
+  const unique = new Set(tokens).size;
+  const ttr = tokens.length ? unique / tokens.length : 0;
+  const lengths = sents.map(s => tokenize(s).length).filter(Boolean);
+  const mean = lengths.length ? lengths.reduce((a,b)=>a+b,0)/lengths.length : 0;
+  const variance = lengths.length ? lengths.reduce((a,b)=>a+(b-mean)**2,0)/lengths.length : 0;
+  const burstiness = mean ? Math.sqrt(variance)/mean : 0;
+  const signatureHits = countMatches(text, signatures);
+  const hedgingHits = countMatches(text, [/\b(perhaps|maybe|possibly|likely|generally|typically|often|could be|might be|peut-être|probablement|généralement|souvent|pourrait)\b/giu]);
+  const connectorHits = countMatches(text, [/\b(therefore|consequently|furthermore|moreover|however|nevertheless|additionally|therefore|ainsi|cependant|néanmoins|donc|par conséquent|de plus)\b/giu]);
+  const repeated = tokens.length ? 1 - ttr : 0;
+  const uniformity = mean ? clamp(1 - Math.min(1, burstiness * 1.8)) : 0;
+  const signatureScore = clamp(signatureHits / Math.max(1, tokens.length / 120));
+  const connectorScore = clamp(connectorHits / Math.max(1, tokens.length / 80));
+  const repetitionScore = clamp(repeated * 0.8);
+  const uniformityScore = uniformity * 0.35;
+  const lowBurstScore = clamp((0.28 - burstiness) / 0.28) * 0.25;
+  const ai = clamp(signatureScore * 0.30 + connectorScore * 0.18 + repetitionScore * 0.12 + uniformityScore + lowBurstScore + clamp(hedgingHits / Math.max(1, tokens.length / 100)) * 0.05);
+  const confidence = tokens.length < 100 ? "Faible" : tokens.length < 650 ? "Moyenne" : "Élevée";
+  return { tokens, sents, ttr, burstiness, signatureHits, hedgingHits, connectorHits, ai, confidence };
 }
 
 export default async function detect(req: VercelRequest, res: VercelResponse) {
@@ -40,9 +79,25 @@ export default async function detect(req: VercelRequest, res: VercelResponse) {
     const started = Date.now();
     // Charger le moteur COJ à l’intérieur du try/catch afin qu’une erreur
     // d’initialisation/import ne fasse jamais tomber la Vercel Function en 500.
-    const { runPythonDetectorPort } = await import("../src/lib/engines/pythonPort/detectorEngine");
-    const detector = runPythonDetectorPort(text);
-    const ai = detector.probability;
+    const local = calculateDetector(text);
+    const ai = local.ai;
+    const detector = {
+      score: Math.round(ai * 100),
+      probability: ai,
+      features: {
+        signatureScore: Math.min(100, local.signatureHits * 18),
+        entropyDiversityIndex: Math.min(100, local.ttr * 100),
+        verbDiversity: Math.min(100, local.ttr * 100),
+        hedgingPhrases: Math.min(100, local.hedgingHits * 10),
+        transitionMarkers: Math.min(100, local.connectorHits * 10),
+        repetitionPatterns: Math.min(100, (1 - local.ttr) * 100),
+        avgSentenceComplexity: local.sents.length ? Math.min(100, (local.tokens.length / local.sents.length) * 3.5) : 0,
+        punctuationVariability: Math.min(100, local.burstiness * 100),
+        overallAiProbability: ai * 100,
+        signatureHits: { coj: local.signatureHits },
+      },
+      engine: "coj-neuro-heuristic-typescript" as const,
+    };
     const features = detector.features;
     const wordCount = text.match(/[\p{L}\p{N}_']+/gu)?.length ?? 0;
     const sentenceCount = text.split(/[.!?…]+|\n+/).map(s => s.trim()).filter(Boolean).length;
