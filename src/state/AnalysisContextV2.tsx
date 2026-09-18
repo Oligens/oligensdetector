@@ -206,7 +206,7 @@ export function AnalysisProvider({ children }: { children: ReactNode }) {
         if (runId !== runIdRef.current) return;
         setPhase("idle"); setProgress(0); setActiveName(null); setActiveWords(null);
         const err = error as Error & { code?: string; maxWords?: number };
-        const suffix = err.code === "WORD_LIMIT" && err.maxWords ? ` Limite : ${err.maxWords.toLocaleString("fr-FR")} mots.` : "";
+        const suffix = err.code === "WORD_LIMIT" && err.maxWords ? ` Limite : ${Number(err.maxWords).toLocaleString("fr-FR")} mots.` : "";
         toast("Analyse bloquée", `${err.message ?? "Échec de l'analyse."}${suffix}`);
       } finally {
         if (progressTimer) window.clearInterval(progressTimer);
