@@ -22,8 +22,16 @@
       "destination": "/api/[...all]?all=reports"
     },
     {
+      "source": "/api/analyses/create",
+      "destination": "/api/[...all]?all=analyses/create"
+    },
+    {
       "source": "/api/analyses",
       "destination": "/api/[...all]?all=analyses"
+    },
+    {
+      "source": "/api/copyleaks/scan",
+      "destination": "/api/[...all]?all=copyleaks/scan"
     },
     {
       "source": "/api/config",
