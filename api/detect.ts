@@ -1,6 +1,4 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { runPythonDetectorPort } from "../src/lib/engines/pythonPort/detectorEngine";
-
 /**
  * ══════════════════════════════════════════════════════════════════════════════
  *  COJ AI DETECTION API
@@ -20,7 +18,7 @@ function detectLanguage(value: unknown, text: string): "fr" | "en" | "mixte" {
   return fr >= en * 2 ? "fr" : en >= fr * 2 ? "en" : "mixte";
 }
 
-export default function detect(req: VercelRequest, res: VercelResponse) {
+export default async function detect(req: VercelRequest, res: VercelResponse) {
   res.setHeader("Cache-Control", "no-store, max-age=0");
   res.setHeader("Content-Type", "application/json; charset=utf-8");
 
@@ -40,6 +38,9 @@ export default function detect(req: VercelRequest, res: VercelResponse) {
     }
 
     const started = Date.now();
+    // Charger le moteur COJ à l’intérieur du try/catch afin qu’une erreur
+    // d’initialisation/import ne fasse jamais tomber la Vercel Function en 500.
+    const { runPythonDetectorPort } = await import("../src/lib/engines/pythonPort/detectorEngine");
     const detector = runPythonDetectorPort(text);
     const ai = detector.probability;
     const features = detector.features;
