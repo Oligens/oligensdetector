@@ -47,14 +47,30 @@ function calculateDetector(text: string) {
   const connectorHits = countMatches(text, [/\b(therefore|consequently|furthermore|moreover|however|nevertheless|additionally|therefore|ainsi|cependant|néanmoins|donc|par conséquent|de plus)\b/giu]);
   const repeated = tokens.length ? 1 - ttr : 0;
   const uniformity = mean ? clamp(1 - Math.min(1, burstiness * 1.8)) : 0;
-  const signatureScore = clamp(signatureHits / Math.max(1, tokens.length / 120));
-  const connectorScore = clamp(connectorHits / Math.max(1, tokens.length / 80));
-  const repetitionScore = clamp(repeated * 0.8);
-  const uniformityScore = uniformity * 0.35;
-  const lowBurstScore = clamp((0.28 - burstiness) / 0.28) * 0.25;
-  const ai = clamp(signatureScore * 0.30 + connectorScore * 0.18 + repetitionScore * 0.12 + uniformityScore + lowBurstScore + clamp(hedgingHits / Math.max(1, tokens.length / 100)) * 0.05);
+  // Les indices de diversité décrivent le style ; ils ne doivent pas être
+  // interprétés comme une preuve d'origine humaine. Le score combine donc
+  // plusieurs familles de signaux et applique une calibration non linéaire.
+  const signatureScore = clamp(signatureHits / Math.max(1, tokens.length / 140));
+  const connectorScore = clamp(connectorHits / Math.max(1, tokens.length / 110));
+  const repetitionScore = clamp(repeated * 0.55);
+  const uniformityScore = uniformity;
+  const lowBurstScore = clamp((0.34 - burstiness) / 0.34);
+  const hedgeScore = clamp(hedgingHits / Math.max(1, tokens.length / 130));
+  const structuralEvidence = clamp(
+    signatureScore * 0.32 +
+    connectorScore * 0.16 +
+    repetitionScore * 0.12 +
+    uniformityScore * 0.18 +
+    lowBurstScore * 0.14 +
+    hedgeScore * 0.08,
+  );
+  // Une évidence faible reste faible ; une accumulation de signaux cohérents
+  // peut en revanche dépasser le plancher artificiel observé précédemment.
+  const evidenceBoost = Math.max(0, structuralEvidence - 0.28) * 0.55;
+  const ai = clamp(structuralEvidence + evidenceBoost);
+  const calibratedAi = tokens.length < 80 ? ai * 0.72 : tokens.length < 180 ? ai * 0.88 : ai;
   const confidence = tokens.length < 100 ? "Faible" : tokens.length < 650 ? "Moyenne" : "Élevée";
-  return { tokens, sents, ttr, burstiness, signatureHits, hedgingHits, connectorHits, ai, confidence };
+  return { tokens, sents, ttr, burstiness, signatureHits, hedgingHits, connectorHits, ai: calibratedAi, confidence, signatureScore, connectorScore, repetitionScore, uniformity, lowBurstScore, hedgeScore, structuralEvidence };
 }
 
 export default async function detect(req: VercelRequest, res: VercelResponse) {
@@ -85,16 +101,22 @@ export default async function detect(req: VercelRequest, res: VercelResponse) {
       score: Math.round(ai * 100),
       probability: ai,
       features: {
-        signatureScore: Math.min(100, local.signatureHits * 18),
+        signatureScore: Math.min(100, local.signatureScore * 100),
         entropyDiversityIndex: Math.min(100, local.ttr * 100),
         verbDiversity: Math.min(100, local.ttr * 100),
         hedgingPhrases: Math.min(100, local.hedgingHits * 10),
-        transitionMarkers: Math.min(100, local.connectorHits * 10),
-        repetitionPatterns: Math.min(100, (1 - local.ttr) * 100),
+        transitionMarkers: Math.min(100, local.connectorScore * 100),
+        repetitionPatterns: Math.min(100, local.repetitionScore * 100),
         avgSentenceComplexity: local.sents.length ? Math.min(100, (local.tokens.length / local.sents.length) * 3.5) : 0,
-        punctuationVariability: Math.min(100, local.burstiness * 100),
+        punctuationVariability: Math.min(100, local.lowBurstScore * 100),
         overallAiProbability: ai * 100,
         signatureHits: { coj: local.signatureHits },
+        // Champs de compatibilité attendus par FullAnalysisResult/mapAnalysis.
+        tauxTransitionStandard: local.connectorHits / Math.max(1, local.tokens.length),
+        burstiness: local.burstiness,
+        mattr: local.ttr,
+        scoreOriginalite: local.ttr,
+        perplexiteRelative: Math.min(1, local.ttr * 1.15),
       },
       engine: "coj-neuro-heuristic-typescript" as const,
     };
