@@ -389,13 +389,13 @@ export function runPythonDetectorPort(text: string): PythonDetectorResult {
   // Convert the COJ engine's native metrics to the existing API feature contract.
   const features: PythonDetectorFeatures = {
     signatureScore: signatures.confidence,
-    entropyDiversityIndex: clamp(metrics.shannonEntropy * 100),
-    verbDiversity: clamp(metrics.lexicalDiversity * 100),
-    hedgingPhrases: clamp(metrics.hedgingDensity * 1000),
-    transitionMarkers: clamp(metrics.connectorDensity * 1000),
-    repetitionPatterns: clamp((1 - metrics.lexicalDiversity) * 100),
-    avgSentenceComplexity: sentenceList.length ? clamp((tokenCount / sentenceList.length) * 3.5) : 0,
-    punctuationVariability: clamp(metrics.burstiness * 100),
+    entropyDiversityIndex: clamp(metrics.shannonEntropy * 100, 0, 100),
+    verbDiversity: clamp(metrics.lexicalDiversity * 100, 0, 100),
+    hedgingPhrases: clamp(metrics.hedgingDensity * 1000, 0, 100),
+    transitionMarkers: clamp(metrics.connectorDensity * 1000, 0, 100),
+    repetitionPatterns: clamp((1 - metrics.lexicalDiversity) * 100, 0, 100),
+    avgSentenceComplexity: sentenceList.length ? clamp((tokenCount / sentenceList.length) * 3.5, 0, 100) : 0,
+    punctuationVariability: clamp(metrics.burstiness * 100, 0, 100),
     overallAiProbability: verdict.confidenceScore,
     signatureHits,
   };
