@@ -71,14 +71,14 @@ function buildAnalysis(text: string, detector: ReturnType<typeof runPythonDetect
   const ai = detector.probability;
   const features = detector.features;
   const report = [
-    ["Python-port — signature IA", features.signatureScore / 100, features.signatureScore / 100],
-    ["Python-port — diversité entropique", features.entropyDiversityIndex / 100, (100 - features.entropyDiversityIndex) / 100],
-    ["Python-port — diversité verbale", features.verbDiversity / 100, (100 - features.verbDiversity) / 100],
-    ["Python-port — marqueurs de prudence", features.hedgingPhrases / 100, features.hedgingPhrases / 100],
-    ["Python-port — transitions LLM", features.transitionMarkers / 100, features.transitionMarkers / 100],
-    ["Python-port — répétitions", features.repetitionPatterns / 100, features.repetitionPatterns / 100],
-    ["Python-port — complexité moyenne", features.avgSentenceComplexity / 100, features.avgSentenceComplexity / 100],
-    ["Python-port — variabilité ponctuation", features.punctuationVariability / 100, features.punctuationVariability / 100],
+    ["COJ — signature IA", features.signatureScore / 100, features.signatureScore / 100],
+    ["COJ — diversité entropique", features.entropyDiversityIndex / 100, (100 - features.entropyDiversityIndex) / 100],
+    ["COJ — diversité verbale", features.verbDiversity / 100, (100 - features.verbDiversity) / 100],
+    ["COJ — marqueurs de prudence", features.hedgingPhrases / 100, features.hedgingPhrases / 100],
+    ["COJ — transitions LLM", features.transitionMarkers / 100, features.transitionMarkers / 100],
+    ["COJ — répétitions", features.repetitionPatterns / 100, features.repetitionPatterns / 100],
+    ["COJ — complexité moyenne", features.avgSentenceComplexity / 100, features.avgSentenceComplexity / 100],
+    ["COJ — variabilité ponctuation", features.punctuationVariability / 100, features.punctuationVariability / 100],
   ].map(([nom, z_score, contribution]) => ({ nom: String(nom), z_score: Number(z_score), contribution: Number(contribution) }));
 
   const totalHits = Object.values(features.signatureHits).reduce((a, b) => a + b, 0);
@@ -110,7 +110,7 @@ function buildAnalysis(text: string, detector: ReturnType<typeof runPythonDetect
     z_scores: report.map(item => item.z_score),
     signature: {
       modele_principal: models.length ? models.sort((a, b) => b.share - a.share)[0].model : null,
-      note: models.length ? "Signature linguistique détectée par le moteur Python-port TypeScript." : "Aucune signature automatisée dominante ne se détache.",
+      note: models.length ? "Signature linguistique détectée par le moteur COJ TypeScript." : "Aucune signature automatisée dominante ne se détache.",
       modeles: models,
     },
     statistiques: { mots: wordCount, phrases: sentences.length, caracteres: chars },
@@ -149,18 +149,18 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
       result: analysis,
       engine: detector.engine,
       engine_used: detector.engine,
-      analysis_mode: "python_port_typescript",
+      analysis_mode: "coj_neuro_heuristic_typescript",
       offline_engine: true,
       python_subprocess: false,
       external_dependency: false,
       processing_time_ms: Date.now() - started,
     });
   } catch (error) {
-    console.error("[detect] Python-port TypeScript engine error", error);
+    console.error("[detect] COJ Neuro-Heuristic TypeScript engine error", error);
     const fallback = {
       score: 0,
       probability: 0,
-      engine: "python-detector-typescript-port" as const,
+      engine: "coj-neuro-heuristic-typescript" as const,
       features: {
         signatureScore: 0, entropyDiversityIndex: 0, verbDiversity: 0, hedgingPhrases: 0,
         transitionMarkers: 0, repetitionPatterns: 0, avgSentenceComplexity: 0, punctuationVariability: 0,
@@ -174,8 +174,8 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
       is_ai_generated: false,
       confidence_score: 0,
       analysis: buildAnalysis(text, fallback),
-      engine: "python-detector-typescript-port",
-      engine_used: "python-detector-typescript-port",
+      engine: "coj-neuro-heuristic-typescript",
+      engine_used: "coj-neuro-heuristic-typescript",
       analysis_mode: "safe_fallback",
       offline_engine: true,
       python_subprocess: false,
