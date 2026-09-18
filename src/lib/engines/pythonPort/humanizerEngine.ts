@@ -266,7 +266,7 @@ class CyberTextHumanizer {
       Math.random()<0.3 ? alternatives[Math.floor(Math.random()*alternatives.length)] : match);
   }
 
-  private detectLanguage(text:string):"fr"|"en" {
+  public detectLanguage(text:string):"fr"|"en" {
     const lower=text.toLocaleLowerCase();
     const fr=["le ","la ","les ","de ","du ","des ","et ","est ","dans ","pour "];
     const en=["the ","a ","an ","and ","is ","are ","in ","for ","to ","of "];
@@ -323,7 +323,7 @@ export function runPythonHumanizerPort(text:string,config:PythonHumanizerConfig=
     feedback_loops:result.iterations,
     changes_applied:result.humanized===result.original?0:1,
     is_natural:result.finalScore>=72,
-    detected_language:humanizer["detectLanguage"](result.original),
+    detected_language:humanizer.detectLanguage(result.original),
     engine_used:"coj-cybertext-humanizer-v2",
     fallback_engine:false,
     processing_time_ms:Date.now()-started,
