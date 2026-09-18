@@ -30,10 +30,6 @@
       "destination": "/api/[...all]?all=analyses"
     },
     {
-      "source": "/api/copyleaks/scan",
-      "destination": "/api/[...all]?all=copyleaks/scan"
-    },
-    {
       "source": "/api/config",
       "destination": "/api/[...all]?all=config"
     },
