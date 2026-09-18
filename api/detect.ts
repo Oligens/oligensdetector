@@ -186,6 +186,7 @@ export default async function detect(req: VercelRequest, res: VercelResponse) {
     const ai = local.ai;
     const wordCount = text.match(/[\p{L}\p{N}_']+/gu)?.length ?? 0;
     const sentenceCount = text.split(/[.!?…]+|\n+/).map(s => s.trim()).filter(Boolean).length;
+    const durationMs = Date.now() - started;
     const calibrationMultiplier = wordCount < 80 ? 0.55 : wordCount < 180 ? 0.78 : wordCount < 350 ? 0.92 : 1;
     const consensusMultiplier = 0.72 + local.consensus * 0.28;
     const agreementMultiplier = 0.82 + local.agreement * 0.18;
@@ -224,7 +225,6 @@ export default async function detect(req: VercelRequest, res: VercelResponse) {
     };
     const features = detector.features;
     const language = detectLanguage(body.language, text);
-    const durationMs = Date.now() - started;
     const totalHits = Object.values(features.signatureHits).reduce((a, b) => a + b, 0);
     const modeles = Object.entries(features.signatureHits)
       .filter(([, hits]) => hits > 0)
