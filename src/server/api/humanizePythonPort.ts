@@ -52,33 +52,12 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
       },
     });
   } catch (error) {
-    console.error("[humanize] Python-port TypeScript engine error", error);
-    return res.status(200).json({
-      success: true,
-      status: "safe_fallback",
-      original_text: text,
-      humanized_text: text,
-      text,
-      texteFinal: text,
-      originalText: text,
-      humanizedText: text,
-      naturalness_score: 0,
-      burstiness_before: 0,
-      burstiness_after: 0,
-      entropy_before: 0,
-      entropy_after: 0,
-      feedback_loops: 0,
-      changes_applied: 0,
-      is_natural: false,
-      detected_language: "unknown",
-      engine_used: "python-humanizer-typescript-port",
-      provider: "local",
-      analysis_mode: "safe_fallback",
-      offline_engine: true,
-      python_subprocess: false,
-      external_dependency: false,
-      fallback_engine: true,
-      error_message: error instanceof Error ? error.message : "Moteur local indisponible.",
+    console.error("[humanize] COJ TypeScript humanizer error", error);
+    return res.status(500).json({
+      success: false,
+      status: "error",
+      code: "COJ_HUMANIZER_ERROR",
+      error: "Le moteur COJ de humanisation n'a pas pu terminer l'opération.",
       processing_time_ms: Date.now() - started,
     });
   }
