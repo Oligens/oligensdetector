@@ -157,7 +157,7 @@ class CyberTextHumanizer {
     const lower = text.toLocaleLowerCase();
     const markers = [...this.IDIOMS_FR,...this.IDIOMS_EN,...this.HESITATIONS_FR,...this.HESITATIONS_EN];
     const orality = Math.min(markers.filter(m => lower.includes(m.toLocaleLowerCase())).length / 10, 1);
-    return Math.round((normalizedBurstiness*30 + normalizedEntropy*20 + normalizedTTR*20 + orality*30)*100)/100;
+    return Math.min(100, Math.max(0, Math.round((normalizedBurstiness*30 + normalizedEntropy*20 + normalizedTTR*20 + orality*30)*100) / 100));
   }
 
   public humanizeText(text: string, intensity = 0.7): string {
@@ -221,7 +221,7 @@ class CyberTextHumanizer {
   }
 
   private addSentenceVariability(text:string,intensity:number):string {
-    const sentences=text.split(/(?<=[.!?])\\s+/);
+    const sentences=text.split(/(?<=[.!?])\s+/);
     const out:string[]=[];
     for (const sentence of sentences) {
       if (Math.random()<intensity*0.3 && sentence.length>100 && Math.random()<0.5) {
