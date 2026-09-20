@@ -4,20 +4,32 @@ import jwt from "jsonwebtoken";
 const COOKIE = "oligens_session";
 const MAX_TEXT_LENGTH = 100_000;
 
-function getSessionToken(req: VercelRequest): string | null {
-  const cookieHeader = req.headers.cookie ?? "";
-  const part = cookieHeader
+const REPLACEMENTS: Array<[RegExp, string]> = [
+  [/\bil est important de noter que\b/gi, "on peut retenir que"],
+  [/\bil est important de noter\b/gi, "on peut retenir"],
+  [/\ben outre\b/gi, "de plus"],
+  [/\bpar conséquent\b/gi, "ainsi"],
+  [/\ben résumé\b/gi, "pour résumer"],
+  [/\bil convient de souligner\b/gi, "on peut souligner"],
+  [/\bdans le paysage actuel\b/gi, "aujourd'hui"],
+  [/\bde surcroît\b/gi, "en plus"],
+  [/\bainsi donc\b/gi, "donc"],
+  [/\bcependant\b/gi, "mais"],
+  [/\bnéanmoins\b/gi, "malgré tout"],
+];
+
+function sessionToken(req: VercelRequest): string | null {
+  const part = (req.headers.cookie ?? "")
     .split(";")
-    .map((value) => value.trim())
-    .find((value) => value.startsWith(COOKIE + "="));
+    .map((v) => v.trim())
+    .find((v) => v.startsWith(`${COOKIE}=`));
   return part ? part.slice(COOKIE.length + 1) : null;
 }
 
 function isAuthenticated(req: VercelRequest): boolean {
   const secret = process.env.AUTH_SECRET?.trim();
-  const token = getSessionToken(req);
+  const token = sessionToken(req);
   if (!secret || secret.length < 32 || !token) return false;
-
   try {
     jwt.verify(token, secret, { issuer: "oligens-detector" });
     return true;
@@ -26,23 +38,63 @@ function isAuthenticated(req: VercelRequest): boolean {
   }
 }
 
-function fallbackHumanize(text: string): string {
+function normalize(text: string): string {
   return text
     .replace(/\r\n/g, "\n")
     .replace(/[ \t]+/g, " ")
     .replace(/\n{3,}/g, "\n\n")
+    .replace(/\s+([,.;!?…])/g, "$1")
+    .replace(/([.!?…])\s*([.!?…])+/g, "$1")
     .trim();
 }
 
+function humanizeLocal(text: string, intensity: number): string {
+  let result = text;
+
+  for (const [pattern, replacement] of REPLACEMENTS) {
+    result = result.replace(pattern, replacement);
+  }
+
+  const sentences = result
+    .split(/(?<=[.!?…])\s+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  if (intensity >= 0.75 && sentences.length >= 4) {
+    for (let i = 3; i < sentences.length; i += 4) {
+      const sentence = sentences[i];
+      if (!sentence || /^(et|mais|or|donc)\b/i.test(sentence)) continue;
+      const first = sentence.charAt(0).toLowerCase();
+      sentences[i] = first ? `De fait, ${first}${sentence.slice(1)}` : sentence;
+    }
+    result = sentences.join(" ");
+  }
+
+  return normalize(result);
+}
+
+function clampIntensity(value: unknown): number {
+  const parsed = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(parsed)) return 0.65;
+  return Math.max(0, Math.min(1, parsed));
+}
+
 /**
- * Hardened Vercel entry point for POST /api/humanize.
+ * Vercel-safe /api/humanize.
  *
- * IMPORTANT: the humanizer engine is loaded dynamically. A failure while
- * importing any optional/legacy engine must never prevent this endpoint from
- * responding. The endpoint therefore has an HTTP-200 safety fallback.
+ * This route is deliberately self-contained:
+ * - no Python subprocess
+ * - no DeepSeek/Gemini
+ * - no import of the legacy humanizer engine
+ * - no dynamic engine import
+ * - only Vercel's request/response types and JWT authentication
+ *
+ * Therefore an initialization failure in the old humanizer cannot take down
+ * this endpoint before its try/catch is reached.
  */
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+export default function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader("Cache-Control", "no-store, max-age=0");
+  res.setHeader("X-Oligens-Humanizer", "local-ts-v3");
 
   if (req.method !== "POST") {
     return res.status(405).json({
@@ -60,52 +112,85 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
   }
 
-  const body = (req.body ?? {}) as Record<string, unknown>;
-  const text = typeof body.text === "string" ? body.text.trim() : "";
-
-  if (text.length < 20) {
-    return res.status(400).json({
-      success: false,
-      error: "Le texte à humaniser est trop court.",
-      code: "TEXT_TOO_SHORT",
-    });
-  }
-
-  if (text.length > MAX_TEXT_LENGTH) {
-    return res.status(413).json({
-      success: false,
-      error: "Le texte dépasse 100 000 caractères.",
-      code: "TEXT_TOO_LARGE",
-    });
-  }
-
-  const started = Date.now();
-
   try {
-    const module = await import("../src/server/api/humanize");
-    return await module.default(req, res);
-  } catch (error) {
-    console.error("[humanize] isolated engine failure; using safe fallback", error);
+    const body =
+      req.body && typeof req.body === "object"
+        ? (req.body as Record<string, unknown>)
+        : {};
+    const text = typeof body.text === "string" ? body.text.trim() : "";
 
-    const safeText = fallbackHumanize(text);
+    if (text.length < 20) {
+      return res.status(400).json({
+        success: false,
+        error: "Le texte à humaniser est trop court.",
+        code: "TEXT_TOO_SHORT",
+      });
+    }
+
+    if (text.length > MAX_TEXT_LENGTH) {
+      return res.status(413).json({
+        success: false,
+        error: "Le texte dépasse 100 000 caractères.",
+        code: "TEXT_TOO_LARGE",
+      });
+    }
+
+    const started = Date.now();
+    const intensity = clampIntensity(body.intensity);
+    const humanized = humanizeLocal(text, intensity);
+
+    return res.status(200).json({
+      success: true,
+      status: "success",
+      text: humanized,
+      texteFinal: humanized,
+      originalText: text,
+      original_text: text,
+      humanizedText: humanized,
+      humanized_text: humanized,
+      provider: "local",
+      engine_used: "COJ_Local_TS_Humanizer",
+      engine_name: "COJ Local TypeScript Humanizer",
+      engine_version: "3.0.0",
+      analysis_mode: "local_zero_dependency",
+      offline_engine: true,
+      python_subprocess: false,
+      external_dependency: false,
+      fallback_engine: false,
+      processing_time_ms: Date.now() - started,
+      metrics: {
+        original_length: text.length,
+        humanized_length: humanized.length,
+        changed: humanized !== text,
+        intensity,
+      },
+    });
+  } catch (error) {
+    console.error("[humanize] local route recovery", error);
+
+    const body =
+      req.body && typeof req.body === "object"
+        ? (req.body as Record<string, unknown>)
+        : {};
+    const text = typeof body.text === "string" ? body.text.trim() : "";
+
     return res.status(200).json({
       success: true,
       status: "degraded",
-      text: safeText,
-      texteFinal: safeText,
+      text,
+      texteFinal: text,
       originalText: text,
       original_text: text,
-      humanizedText: safeText,
-      humanized_text: safeText,
-      provider: "local-safe-fallback",
-      engine_used: "safe_fallback",
-      fallback_engine: true,
-      analysis_mode: "vercel_safe_fallback",
+      humanizedText: text,
+      humanized_text: text,
+      provider: "local-safe-recovery",
+      engine_used: "COJ_Safe_Recovery",
+      engine_version: "3.0.0",
+      analysis_mode: "safe_recovery",
       offline_engine: true,
-      external_dependency: false,
-      processing_time_ms: Date.now() - started,
-      warning: "Le moteur avancé est temporairement indisponible. Le traitement sécurisé a été appliqué.",
-      error_code: error instanceof Error ? error.name : "HUMANIZER_ENGINE_ERROR",
+      fallback_engine: true,
+      error_recovered: true,
+      processing_time_ms: 0,
     });
   }
 }
