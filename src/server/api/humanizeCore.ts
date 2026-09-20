@@ -2,6 +2,19 @@ const MAX_TEXT_LENGTH = 100_000;
 
 type HumanizeOptions = { intensity?: unknown; language?: unknown; mode?: unknown };
 
+type HumanizeResult = {
+  text: string;
+  changed: boolean;
+  changes: number;
+  intensity: number;
+  language: "fr" | "en";
+  mode: "humanize" | "summary";
+  originalLength: number;
+  finalLength: number;
+};
+
+
+
 const PHRASE_REPLACEMENTS: Array<[RegExp, string]> = [
   [/\bil est important de noter que\b/gi, "on peut retenir que"],
   [/\bil est important de noter\b/gi, "on peut retenir"],
@@ -115,32 +128,209 @@ function splitSelectedLongSentences(sentences: string[], intensity: number): num
   return changed;
 }
 
-export function humanizeLocal(text: string, options: HumanizeOptions = {}) {
+
+function wordsOf(text: string): string[] {
+  return text.toLowerCase().match(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu) ?? [];
+}
+
+function applyBurstiness(sentences: string[], intensity: number): number {
+  if (sentences.length < 3 || intensity < 0.68) return 0;
+  let changes = 0;
+  for (let i = 0; i < sentences.length && changes < 4; i++) {
+    const sentence = sentences[i];
+    if (wordsOf(sentence).length < 28) continue;
+    const match = sentence.match(/,\s+(mais|et|car|donc|pourtant|toutefois|qui|ce qui|but|and|because|so|yet|which)\s+/i);
+    if (!match || match.index == null) continue;
+    const left = sentence.slice(0, match.index).trim();
+    const right = sentence.slice(match.index + match[0].length).trim();
+    if (wordsOf(left).length < 9 || wordsOf(right).length < 7) continue;
+    const connector = match[1].toLowerCase();
+    const start = connector === "et" ? "Et" : connector === "mais" ? "Mais" : connector === "and" ? "And" : connector === "but" ? "But" : connector.charAt(0).toUpperCase() + connector.slice(1);
+    sentences.splice(i, 1, left + ".", start + " " + right.charAt(0).toLowerCase() + right.slice(1));
+    changes++;
+    i++;
+  }
+  for (let i = 1; i < sentences.length && changes < 6; i++) {
+    if (wordsOf(sentences[i]).length <= 5 && wordsOf(sentences[i - 1]).length >= 12) {
+      sentences[i - 1] = sentences[i - 1].replace(/[.!?…]$/, "") + ". " + sentences[i];
+      sentences.splice(i, 1);
+      changes++;
+    }
+  }
+  return changes;
+}
+
+function applyLexicalVariation(text: string, intensity: number, language: "fr" | "en"): [string, number] {
+  const dict: Record<string, string[]> = language === "fr"
+    ? {
+        important: ["majeur", "central", "clé"],
+        importante: ["majeure", "centrale", "clé"],
+        importants: ["majeurs", "centraux", "clés"],
+        importantes: ["majeures", "centrales", "clés"],
+        utiliser: ["employer", "mobiliser", "recourir à"],
+        utilise: ["emploie", "mobilise", "exploite"],
+        utilisent: ["emploient", "mobilisent", "exploitent"],
+        permet: ["sert à", "donne la possibilité de"],
+        permettent: ["servent à", "donnent la possibilité de"],
+        démontrer: ["montrer", "établir", "mettre en évidence"],
+        obtenir: ["avoir", "recevoir", "atteindre"],
+        nombreux: ["plusieurs", "beaucoup de", "divers"],
+        nécessaire: ["indispensable", "utile", "requis"],
+        nécessaires: ["indispensables", "utiles", "requises"],
+        problème: ["difficulté", "question", "point de tension"],
+        problèmes: ["difficultés", "questions", "points de tension"],
+        solution: ["réponse", "piste", "issue"],
+        solutions: ["réponses", "pistes", "issues"],
+      }
+    : {
+        important: ["key", "central", "major"],
+        utilize: ["use", "employ"],
+        demonstrate: ["show", "establish", "highlight"],
+        obtain: ["get", "gain", "achieve"],
+        numerous: ["many", "several", "various"],
+        necessary: ["needed", "essential", "required"],
+        problem: ["issue", "difficulty", "challenge"],
+        solution: ["answer", "approach", "way forward"],
+      };
+
+  let result = text;
+  let changes = 0;
+  const max = Math.max(1, Math.floor(wordsOf(text).length * Math.min(0.12, intensity * 0.16)));
+
+  for (const [word, variants] of Object.entries(dict)) {
+    if (changes >= max) break;
+    const re = new RegExp("\\b" + word + "\\b", "gi");
+    const before = result;
+    if (!re.test(result)) continue;
+    re.lastIndex = 0;
+    result = result.replace(re, (match) => preserveCase(match, variants[changes % variants.length]));
+    if (result !== before) changes++;
+  }
+  return [result, changes];
+}
+
+function applyStylisticRelief(sentences: string[], intensity: number, language: "fr" | "en"): number {
+  if (sentences.length < 5 || intensity < 0.72) return 0;
+  const connectors = language === "fr"
+    ? ["En pratique,", "Sur ce point,", "Dans les faits,", "Concrètement,", "À ce stade,"]
+    : ["In practice,", "On this point,", "In fact,", "More concretely,", "At this stage,"];
+  let changes = 0;
+  const target = Math.min(3, Math.max(1, Math.floor(sentences.length / 7)));
+  for (let i = 2; i < sentences.length && changes < target; i++) {
+    if ((i + 1) % 5 !== 0) continue;
+    const s = sentences[i];
+    if (/^(En pratique|Sur ce point|Dans les faits|Concrètement|À ce stade|In practice|On this point|In fact|More concretely|At this stage),/i.test(s)) continue;
+    const first = s.charAt(0).toLowerCase();
+    if (!first) continue;
+    sentences[i] = connectors[changes % connectors.length] + " " + first + s.slice(1);
+    changes++;
+  }
+  return changes;
+}
+
+function varyParagraphs(text: string, intensity: number): [string, number] {
+  const paragraphs = text.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
+  if (paragraphs.length !== 1 || intensity < 0.72) return [text, 0];
+  const sentences = sentenceParts(paragraphs[0]);
+  if (sentences.length < 6) return [text, 0];
+  const cut = Math.max(3, Math.round(sentences.length / 2));
+  return [sentences.slice(0, cut).join(" ") + "\n\n" + sentences.slice(cut).join(" "), 1];
+}
+
+const SUMMARY_STOP_FR = new Set(["le","la","les","un","une","des","de","du","au","aux","et","ou","mais","que","qui","ce","cette","ces","en","pour","par","sur","avec","dans","est","sont","a","à","on","se","sa","son","ses","leur","leurs","ne","pas","plus"]);
+const SUMMARY_STOP_EN = new Set(["the","a","an","and","or","but","so","that","which","this","these","of","to","in","for","by","with","on","is","are","was","were","it","its","their","not","more"]);
+
+function shortenText(text: string, language: "fr" | "en", targetRatio = 0.62): [string, number] {
+  const sentences = sentenceParts(text);
+  if (sentences.length < 4) return [text, 0];
+  const stop = language === "fr" ? SUMMARY_STOP_FR : SUMMARY_STOP_EN;
+  const frequencies = new Map<string, number>();
+  for (const sentence of sentences) {
+    for (const word of wordsOf(sentence)) {
+      if (!stop.has(word) && word.length > 3) frequencies.set(word, (frequencies.get(word) ?? 0) + 1);
+    }
+  }
+  const scored = sentences.map((sentence, index) => {
+    const unique = new Set(wordsOf(sentence));
+    let score = 0;
+    for (const word of unique) if (!stop.has(word)) score += 1 + Math.min(2, frequencies.get(word) ?? 0) * 0.25;
+    if (/\b(19\d{2}|20\d{2}|%|\$|€|\d+)\b/.test(sentence)) score += 2;
+    if (/\b(principal|objectif|résultat|cause|effet|enjeu|clé|important|essential|main|objective|result|cause|effect|key)\b/i.test(sentence)) score += 1.5;
+    if (index === 0 || index === sentences.length - 1) score += 1;
+    return { index, score };
+  });
+  const keepCount = Math.max(2, Math.min(sentences.length - 1, Math.round(sentences.length * targetRatio)));
+  const keep = new Set(scored.sort((a, b) => b.score - a.score).slice(0, keepCount).map((x) => x.index));
+  return [sentences.filter((_, index) => keep.has(index)).join(" "), sentences.length - keep.size];
+}
+
+function summaryMode(mode: unknown): boolean {
+  const value = String(mode ?? "").toLowerCase();
+  return ["resume", "résumé", "summary", "summarize", "shorten", "compact", "concis"].some((x) => value.includes(x));
+}
+
+
+export function humanizeLocal(text: string, options: HumanizeOptions = {}): HumanizeResult {
   const original = normalize(text);
   const intensity = clampIntensity(options.intensity);
   const language = dominantLanguage(original, options.language);
-  let result = original, changes = 0;
-  const replacements = language === "fr" ? [...PHRASE_REPLACEMENTS, ...COMMON_REPLACEMENTS_FR] : [...PHRASE_REPLACEMENTS, ...COMMON_REPLACEMENTS_EN];
-  for (const [pattern, replacement] of replacements) {
-    const before = result;
-    result = replaceWithCase(result, pattern, replacement);
-    if (result !== before) changes++;
+
+  if (summaryMode(options.mode)) {
+    const shortened = shortenText(original, language, 0.62);
+    const lexical = applyLexicalVariation(shortened[0], Math.min(1, intensity * 0.7), language);
+    const result = normalize(lexical[0]);
+    return {
+      text: result,
+      changed: result !== original,
+      changes: shortened[1] + lexical[1],
+      intensity,
+      language,
+      mode: "summary",
+      originalLength: original.length,
+      finalLength: result.length,
+    };
   }
 
+  let result = original;
+  let changes = 0;
+  const replacements = language === "fr" ? PHRASE_REPLACEMENTS : COMMON_REPLACEMENTS_EN;
+
+  for (const [pattern, replacement] of replacements) {
+    const next = replaceWithCase(result, pattern, replacement);
+    if (next !== result) changes++;
+    result = next;
+  }
+
+  const lexical = applyLexicalVariation(result, intensity, language);
+  result = lexical[0];
+  changes += lexical[1];
+
   const sentences = sentenceParts(result);
-  changes += splitSelectedLongSentences(sentences, intensity);
-  changes += varySentenceStarts(sentences, intensity, language);
+  changes += applyBurstiness(sentences, intensity);
+  changes += applyStylisticRelief(sentences, intensity, language);
   result = normalize(sentences.join(" "));
 
-  // Never silently return an unchanged long text: when no lexical/structural
-  // rule applies, alter the first sentence boundary while preserving its words.
-  if (result === original && sentences.length >= 2 && sentences[0].endsWith(".")) {
-    sentences[0] = sentences[0].slice(0, -1) + "…";
-    result = normalize(sentences.join(" "));
+  const paragraphs = varyParagraphs(result, intensity);
+  result = paragraphs[0];
+  changes += paragraphs[1];
+
+  if (result === original && sentences.length >= 3) {
+    const midpoint = Math.max(1, Math.floor(sentences.length / 2));
+    result = sentences.slice(0, midpoint).join(" ") + "\n\n" + sentences.slice(midpoint).join(" ");
     changes = 1;
   }
 
-  return { text: result, changed: result !== original, changes, intensity, language };
+  result = normalize(result);
+  return {
+    text: result,
+    changed: result !== original,
+    changes,
+    intensity,
+    language,
+    mode: "humanize",
+    originalLength: original.length,
+    finalLength: result.length,
+  };
 }
 
 export { MAX_TEXT_LENGTH };
