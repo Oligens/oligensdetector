@@ -41,7 +41,7 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
       analysis_mode: "local_zero_dependency", offline_engine: true,
       python_subprocess: false, external_dependency: false, fallback_engine: false,
       processing_time_ms: Date.now() - started,
-      metrics: { original_length: text.length, humanized_length: transformed.text.length, changed: transformed.changed, changes: transformed.changes, intensity: transformed.intensity, language: transformed.language }
+      metrics: { original_length: transformed.originalLength, humanized_length: transformed.finalLength, changed: transformed.changed, changes: transformed.changes, intensity: transformed.intensity, language: transformed.language, mode: transformed.mode }
     });
   } catch (error) {
     console.error("undefined", error);
