@@ -2,6 +2,19 @@ const MAX_TEXT_LENGTH = 100_000;
 
 type HumanizeOptions = { intensity?: unknown; language?: unknown; mode?: unknown };
 
+type HumanizeResult = {
+  text: string;
+  changed: boolean;
+  changes: number;
+  intensity: number;
+  language: "fr" | "en";
+  mode: "humanize" | "summary";
+  originalLength: number;
+  finalLength: number;
+};
+
+
+
 const PHRASE_REPLACEMENTS: Array<[RegExp, string]> = [
   [/\bil est important de noter que\b/gi, "on peut retenir que"],
   [/\bil est important de noter\b/gi, "on peut retenir"],
