@@ -16,6 +16,7 @@ type HumanizeResult = {
   sentence_count_after: number;
   lexical_replacements: number;
   structural_rewrites: number;
+  sentence_rewrites: number;
 };
 
 function json(res: VercelResponse, status: number, body: Record<string, unknown>) {
@@ -427,7 +428,8 @@ function humanize(text: string, options: Options): HumanizeResult {
     sentence_count_before: before.length,
     sentence_count_after: splitSentences(result).length,
     lexical_replacements: rewritten.lexicalReplacements,
-    structural_rewrites: structuralRewrites + changedSentences
+    structural_rewrites: structuralRewrites + changedSentences,
+    sentence_rewrites: Math.max(changedSentences, rewritten.sentenceChanges)
   };
 }
 
@@ -492,6 +494,10 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
         sentence_count_after: output.sentence_count_after,
         lexical_replacements: output.lexical_replacements,
         structural_rewrites: output.structural_rewrites,
+        sentence_rewrites: output.sentence_rewrites,
+        reformulation_ratio: output.sentence_count_before > 0
+          ? Number((output.sentence_rewrites / output.sentence_count_before).toFixed(3))
+          : 0,
         transformation: "sentence_by_sentence_rewrite",
         sentence_rewrite_required: true,
       },
