@@ -1,3 +1,46 @@
+import { createHmac, timingSafeEqual } from "node:crypto";
+
+const SESSION_COOKIE = "oligens_session";
+
+function base64urlDecode(value: string): string | null {
+  try {
+    return Buffer.from(value.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - value.length % 4) % 4), "base64").toString("utf8");
+  } catch {
+    return null;
+  }
+}
+
+export function verifySessionCookie(cookieHeader: string | undefined): boolean {
+  const secret = process.env.AUTH_SECRET?.trim();
+  if (!secret || secret.length < 32 || !cookieHeader) return false;
+
+  const token = cookieHeader.split(";").map((v) => v.trim()).find((v) => v.startsWith(SESSION_COOKIE + "="))?.slice(SESSION_COOKIE.length + 1);
+  if (!token) return false;
+
+  const parts = token.split(".");
+  if (parts.length !== 3) return false;
+
+  const [encodedHeader, encodedPayload, encodedSignature] = parts;
+  const headerJson = base64urlDecode(encodedHeader);
+  const payloadJson = base64urlDecode(encodedPayload);
+  if (!headerJson || !payloadJson) return false;
+
+  try {
+    const header = JSON.parse(headerJson) as { alg?: string; typ?: string };
+    const payload = JSON.parse(payloadJson) as { exp?: number; iss?: string };
+    if (header.alg !== "HS256") return false;
+    if (payload.iss && payload.iss !== "oligens-detector") return false;
+    if (typeof payload.exp === "number" && payload.exp <= Math.floor(Date.now() / 1000)) return false;
+
+    const expected = createHmac("sha256", secret).update(encodedHeader + "." + encodedPayload).digest("base64url");
+    const received = Buffer.from(encodedSignature);
+    const calculated = Buffer.from(expected);
+    return received.length === calculated.length && timingSafeEqual(received, calculated);
+  } catch {
+    return false;
+  }
+}
+
 const MAX_TEXT_LENGTH = 100_000;
 
 type HumanizeOptions = { intensity?: unknown; language?: unknown; mode?: unknown };
