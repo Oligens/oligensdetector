@@ -10,7 +10,7 @@ function base64urlDecode(value: string): string | null {
   }
 }
 
-function verifySessionCookie(cookieHeader: string | undefined): boolean {
+export function verifySessionCookie(cookieHeader: string | undefined): boolean {
   const secret = process.env.AUTH_SECRET?.trim();
   if (!secret || secret.length < 32 || !cookieHeader) return false;
 
