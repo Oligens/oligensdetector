@@ -92,12 +92,24 @@ function languageOf(text: string, requested: unknown): "fr" | "en" {
   return fr >= en ? "fr" : "en";
 }
 
+
 function replaceInsensitive(text: string, pattern: RegExp, replacement: string): [string, number] {
   let count = 0;
-  const result = text.replace(pattern, match => {
+  const result = text.replace(pattern, (...args) => {
     count++;
+    const match = String(args[0] ?? "");
+
+    // Les règles syntaxiques utilisent $1, $2, etc. On doit réellement
+    // développer les groupes capturés; sinon "$1" restait littéralement
+    // affiché dans le texte et la réécriture échouait silencieusement.
+    if (replacement.includes("$")) {
+      return replacement.replace(/\$(\d+)/g, (_token, index) => String(args[Number(index)] ?? ""));
+    }
+
     if (match === match.toUpperCase()) return replacement.toUpperCase();
-    if (match[0] === match[0].toUpperCase()) return replacement[0].toUpperCase() + replacement.slice(1);
+    if (match[0] === match[0]?.toUpperCase()) {
+      return replacement[0]?.toUpperCase() + replacement.slice(1);
+    }
     return replacement;
   });
   return [result, count];
