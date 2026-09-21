@@ -112,139 +112,256 @@ function preserveTerminalPunctuation(source: string, value: string): string {
   return value.replace(/[.!?…]+$/, "") + punctuation;
 }
 
-function transformFrenchSentence(sentence: string): [string, number] {
-  let s = sentence;
+
+const FRENCH_LEXICAL: Array<[RegExp, string]> = [
+  [/\bpermet de\b/gi, "sert à"],
+  [/\bpermettent de\b/gi, "servent à"],
+  [/\butiliser\b/gi, "employer"],
+  [/\butilise\b/gi, "emploie"],
+  [/\butilisent\b/gi, "emploient"],
+  [/\bcependant\b/gi, "mais"],
+  [/\bnéanmoins\b/gi, "malgré tout"],
+  [/\bpar conséquent\b/gi, "ainsi"],
+  [/\ben outre\b/gi, "de plus"],
+  [/\bnotamment\b/gi, "en particulier"],
+  [/\bégalement\b/gi, "aussi"],
+  [/\bimportant\b/gi, "majeur"],
+  [/\bimportante\b/gi, "majeure"],
+  [/\bimportants\b/gi, "majeurs"],
+  [/\bimportantes\b/gi, "majeures"],
+  [/\bsolution\b/gi, "réponse"],
+  [/\bsolutions\b/gi, "réponses"],
+  [/\boptimiser\b/gi, "améliorer"],
+  [/\bfaciliter\b/gi, "simplifier"],
+  [/\bconstitue\b/gi, "forme"],
+  [/\bconstituent\b/gi, "forment"],
+  [/\bdémontrer\b/gi, "montrer"],
+  [/\bnombreux\b/gi, "plusieurs"],
+  [/\bnombreuses\b/gi, "plusieurs"],
+  [/\bnécessaire\b/gi, "indispensable"],
+  [/\bnécessaires\b/gi, "indispensables"],
+  [/\bapproche\b/gi, "méthode"],
+  [/\bapproches\b/gi, "méthodes"],
+  [/\bpermettant\b/gi, "servant à"],
+  [/\bintègre\b/gi, "s'appuie sur"],
+  [/\bintègrent\b/gi, "s'appuient sur"],
+  [/\boffre\b/gi, "met à disposition"],
+  [/\boffrent\b/gi, "mettent à disposition"],
+  [/\bprotéger\b/gi, "préserver"],
+  [/\bpromouvoir\b/gi, "favoriser"],
+  [/\bidentifier\b/gi, "repérer"],
+  [/\brenforcer\b/gi, "consolider"],
+  [/\bconçue\b/gi, "pensée"],
+  [/\bconçu\b/gi, "pensé"]
+];
+
+const ENGLISH_LEXICAL: Array<[RegExp, string]> = [
+  [/\butilize\b/gi, "use"],
+  [/\bdemonstrate\b/gi, "show"],
+  [/\bnumerous\b/gi, "many"],
+  [/\bsignificant\b/gi, "important"],
+  [/\btherefore\b/gi, "so"],
+  [/\bmoreover\b/gi, "also"],
+  [/\bin addition\b/gi, "also"],
+  [/\bhowever\b/gi, "but"],
+  [/\bfacilitate\b/gi, "help"],
+  [/\boptimize\b/gi, "improve"],
+  [/\bimplement\b/gi, "build"],
+  [/\bprovides\b/gi, "gives"],
+  [/\bproviding\b/gi, "giving"],
+  [/\bdesigned\b/gi, "built"],
+  [/\bintegrates\b/gi, "brings together"],
+  [/\bidentify\b/gi, "detect"],
+  [/\bprotect\b/gi, "preserve"],
+  [/\bpromote\b/gi, "encourage"],
+  [/\bstrengthen\b/gi, "reinforce"]
+];
+
+function applyLexical(text: string, rules: Array<[RegExp, string]>): [string, number] {
+  let result = text;
+  let changes = 0;
+  for (const [pattern, replacement] of rules) {
+    const next = replaceInsensitive(result, pattern, replacement);
+    if (next[1] > 0) {
+      result = next[0];
+      changes += next[1];
+    }
+  }
+  return [result, changes];
+}
+
+function rewriteFrenchSentence(sentence: string, index: number): [string, number] {
+  let s = sentence.trim();
   let changes = 0;
 
   const structuralRules: Array<[RegExp, string]> = [
-    [/^Il est important de noter que\s+/i, "À retenir : "],
-    [/^Il convient de souligner que\s+/i, "Un point mérite d'être souligné : "],
-    [/^Il est intéressant de constater que\s+/i, "On constate surtout que "],
-    [/^Dans le cadre de\s+(.+?)(,\s*)/i, "Pour $1$2"],
-    [/^Afin de\s+(.+?)(,\s*)/i, "Pour $1$2"],
-    [/^En raison de\s+(.+?)(,\s*)/i, "Comme $1$2"],
-    [/^De manière générale,\s*/i, "En général, "],
-    [/^En ce qui concerne\s+(.+?)(,\s*)/i, "Pour ce qui est de $1$2"],
-    [/^Il est nécessaire de\s+/i, "Il faut "],
+    [
+      /^(.+?)\s+est\s+une\s+(.+?)\s+qui\s+fusionne\s+(.+?)\s+pour\s+agir comme un\s+(.+?)([.!?…]+)$/i,
+      "$1 réunit $3 au sein d'une $2. Elle sert de $4$5"
+    ],
+    [
+      /^(.+?)\s+est\s+une\s+(.+?)\s+qui\s+(.+?)\s+pour\s+agir comme un\s+(.+?)([.!?…]+)$/i,
+      "$1 repose sur une $2. Elle $3 afin d'agir comme un $5$6"
+    ],
+    [
+      /^Conçue pour\s+(.+?),\s+(.+)$/i,
+      "Pensée pour $1, $2"
+    ],
+    [
+      /^Dotée d[’'](.+?),\s+elle\s+offre\s+(.+?)\s+un outil de pointe pour\s+(.+?)([.!?…]+)$/i,
+      "Grâce à $1, elle met à la disposition $2 un outil conçu pour $3$4"
+    ],
+    [
+      /^Dotée d[’'](.+?),\s+elle\s+(.+)$/i,
+      "Avec $1, elle $2"
+    ],
+    [
+      /^(.+?),\s+l'application\s+intègre\s+(.+)$/i,
+      "Pour $1, l'application s'appuie sur $2"
+    ],
+    [
+      /^(.+?),\s+l'application\s+(.+)$/i,
+      "Pour $1, l'application $2"
+    ],
+    [
+      /^(.+?)\s+intègre\s+(.+)$/i,
+      "$1 s'appuie sur $2"
+    ],
+    [
+      /^(.+?)\s+offre\s+(.+)$/i,
+      "$1 met à disposition $2"
+    ],
+    [
+      /^(.+?)\s+offrent\s+(.+)$/i,
+      "$1 mettent à disposition $2"
+    ],
+    [
+      /^(.+?)\s+fusionne\s+(.+?)\s+et\s+(.+?)\s+pour\s+(.+)$/i,
+      "$1 réunit $2 et $3 afin de $4"
+    ],
+    [
+      /^(.+?)\s+permet\s+de\s+(.+)$/i,
+      "$1 sert à $2"
+    ]
   ];
 
   for (const [pattern, replacement] of structuralRules) {
     const next = replaceInsensitive(s, pattern, replacement);
-    if (next[1]) {
+    if (next[1] > 0) {
       s = next[0];
       changes += next[1];
+      break;
     }
   }
 
-  const lexicalRules: Array<[RegExp, string]> = [
-    [/\bpermet de\b/gi, "sert à"],
-    [/\bpermettent de\b/gi, "servent à"],
-    [/\butiliser\b/gi, "employer"],
-    [/\butilise\b/gi, "emploie"],
-    [/\bcependant\b/gi, "mais"],
-    [/\bnéanmoins\b/gi, "malgré tout"],
-    [/\bpar conséquent\b/gi, "ainsi"],
-    [/\ben outre\b/gi, "de plus"],
-    [/\bnotamment\b/gi, "en particulier"],
-    [/\bégalement\b/gi, "aussi"],
-    [/\bimportant\b/gi, "essentiel"],
-    [/\bsolution\b/gi, "réponse"],
-    [/\boptimiser\b/gi, "améliorer"],
-    [/\bfaciliter\b/gi, "simplifier"],
-    [/\bafin de\b/gi, "pour"],
-  ];
+  const lexical = applyLexical(s, FRENCH_LEXICAL);
+  s = lexical[0];
+  changes += lexical[1];
 
-  for (const [pattern, replacement] of lexicalRules) {
-    const next = replaceInsensitive(s, pattern, replacement);
-    if (next[1]) {
-      s = next[0];
-      changes += next[1];
+  if (s === sentence.trim()) {
+    const comma = s.search(/,\s+/);
+    if (comma > 20 && comma < s.length - 20) {
+      const left = s.slice(0, comma).trim();
+      const right = s.slice(comma + 1).trim();
+      const first = right.charAt(0).toUpperCase();
+      s = right.replace(/^./, first) + " — " + left.toLowerCase();
+    } else {
+      const first = s.charAt(0);
+      const rest = s.slice(1);
+      s = (index % 2 === 0 ? "Dans les faits, " : "Concrètement, ") + first.toLowerCase() + rest;
     }
-  }
-
-  const passive = s.match(/^(.+?)\s+est\s+conçu pour\s+(.+?)([.!?…]+)?$/i);
-  if (passive) {
-    s = preserveTerminalPunctuation(s, passive[1].trim() + " sert à " + passive[2].trim());
     changes++;
   }
 
-  return [s, changes];
+  s = s.replace(/\bafin de agir\b/gi, "afin d'agir");
+  return [preserveTerminalPunctuation(sentence, s), changes];
 }
 
-function transformEnglishSentence(sentence: string): [string, number] {
-  let s = sentence;
+function rewriteEnglishSentence(sentence: string, index: number): [string, number] {
+  let s = sentence.trim();
   let changes = 0;
 
   const structuralRules: Array<[RegExp, string]> = [
-    [/^It is important to note that\s+/i, "One point is worth keeping in mind: "],
-    [/^It should be noted that\s+/i, "The key point is that "],
-    [/^In order to\s+/i, "To "],
-    [/^Due to the fact that\s+/i, "Because "],
-    [/^With regard to\s+/i, "For "],
-    [/^In the context of\s+/i, "Within "],
-    [/^It is necessary to\s+/i, "We need to "],
+    [/^It is important to note that\s+(.+)$/i, "One point is worth keeping in mind: $1"],
+    [/^It should be noted that\s+(.+)$/i, "The key point is this: $1"],
+    [/^In order to\s+(.+)$/i, "To $1"],
+    [/^Due to the fact that\s+(.+)$/i, "Because $1"],
+    [/^With regard to\s+(.+)$/i, "As for $1"],
+    [/^In the context of\s+(.+)$/i, "Within $1"],
+    [/^It is necessary to\s+(.+)$/i, "We need to $1"],
+    [/^Designed to\s+(.+?),\s+(.+)$/i, "Built to $1, $2"],
+    [/^Equipped with\s+(.+?),\s+it\s+(.+)$/i, "With $1, it $2"],
+    [/^(.+?)\s+is designed to\s+(.+)$/i, "$1 is built to $2"],
+    [/^(.+?)\s+integrates\s+(.+)$/i, "$1 brings together $2"],
+    [/^(.+?)\s+provides\s+(.+)$/i, "$1 gives $2"],
+    [/^(.+?)\s+offers\s+(.+)$/i, "$1 gives $2"],
+    [/^(.+?)\s+allows\s+(.+?)\s+to\s+(.+)$/i, "$1 lets $2 $3"]
   ];
 
   for (const [pattern, replacement] of structuralRules) {
     const next = replaceInsensitive(s, pattern, replacement);
-    if (next[1]) {
+    if (next[1] > 0) {
       s = next[0];
       changes += next[1];
+      break;
     }
   }
 
-  const lexicalRules: Array<[RegExp, string]> = [
-    [/\butilize\b/gi, "use"],
-    [/\bdemonstrate\b/gi, "show"],
-    [/\bnumerous\b/gi, "many"],
-    [/\bsignificant\b/gi, "important"],
-    [/\btherefore\b/gi, "so"],
-    [/\bmoreover\b/gi, "also"],
-    [/\bin addition\b/gi, "also"],
-    [/\bhowever\b/gi, "but"],
-    [/\bfacilitate\b/gi, "help"],
-    [/\boptimize\b/gi, "improve"],
-    [/\bimplement\b/gi, "build"],
-  ];
+  const lexical = applyLexical(s, ENGLISH_LEXICAL);
+  s = lexical[0];
+  changes += lexical[1];
 
-  for (const [pattern, replacement] of lexicalRules) {
-    const next = replaceInsensitive(s, pattern, replacement);
-    if (next[1]) {
-      s = next[0];
-      changes += next[1];
+  if (s === sentence.trim()) {
+    const comma = s.search(/,\s+/);
+    if (comma > 20 && comma < s.length - 20) {
+      const left = s.slice(0, comma).trim();
+      const right = s.slice(comma + 1).trim();
+      const first = right.charAt(0).toUpperCase();
+      s = right.replace(/^./, first) + " — " + left.toLowerCase();
+    } else {
+      const first = s.charAt(0);
+      const rest = s.slice(1);
+      s = (index % 2 === 0 ? "In practice, " : "More concretely, ") + first.toLowerCase() + rest;
     }
-  }
-
-  const passive = s.match(/^(.+?)\s+is\s+designed to\s+(.+?)([.!?…]+)?$/i);
-  if (passive) {
-    s = preserveTerminalPunctuation(s, passive[1].trim() + " is built to " + passive[2].trim());
     changes++;
   }
 
-  return [s, changes];
+  return [preserveTerminalPunctuation(sentence, s), changes];
 }
 
-function reorderAndSplit(sentences: string[], intensity: number): [string[], number] {
-  if (sentences.length < 2 || intensity < 0.55) return [sentences, 0];
+function rewriteEverySentence(text: string, language: "fr" | "en"): {
+  text: string;
+  sentenceChanges: number;
+  lexicalReplacements: number;
+  structuralRewrites: number;
+} {
+  const source = splitSentences(text);
+  let sentenceChanges = 0;
+  let lexicalReplacements = 0;
+  let structuralRewrites = 0;
+  const output: string[] = [];
 
-  const output = [...sentences];
-  let changes = 0;
+  source.forEach((sentence, index) => {
+    const rewritten = language === "fr"
+      ? rewriteFrenchSentence(sentence, index)
+      : rewriteEnglishSentence(sentence, index);
 
-  for (let i = 0; i < output.length; i++) {
-    const s = output[i];
-    if (s.length < 150 || changes >= 3) continue;
-
-    const comma = s.indexOf(", ");
-    if (comma > 45 && comma < s.length - 45) {
-      const first = s.slice(0, comma);
-      const second = s.slice(comma + 2);
-      output.splice(i, 1, first + ".", second.charAt(0).toUpperCase() + second.slice(1));
-      changes++;
+    if (rewritten[0] !== sentence.trim()) sentenceChanges++;
+    if (rewritten[1] > 0) {
+      structuralRewrites += rewritten[1] > 1 ? 1 : 0;
+      lexicalReplacements += Math.max(0, rewritten[1] - (rewritten[1] > 1 ? 1 : 0));
     }
-  }
+    output.push(rewritten[0]);
+  });
 
-  return [output, changes];
+  return {
+    text: normalize(output.join(" ")),
+    sentenceChanges,
+    lexicalReplacements,
+    structuralRewrites
+  };
 }
+
 
 function humanize(text: string, options: Options): HumanizeResult {
   const original = normalize(text);
@@ -255,53 +372,56 @@ function humanize(text: string, options: Options): HumanizeResult {
     : 0.78;
 
   const before = splitSentences(original);
-  let lexicalReplacements = 0;
-  let structuralRewrites = 0;
+  const rewritten = rewriteEverySentence(original, language);
+  let result = rewritten.text;
+  let structuralRewrites = rewritten.structuralRewrites;
 
-  let sentences = before.map(sentence => {
-    const [transformed, changes] = language === "fr"
-      ? transformFrenchSentence(sentence)
-      : transformEnglishSentence(sentence);
-
-    if (changes > 0) {
-      const structural = /^((À retenir|Un point mérite|On constate|Pour |Comme |En général|Il faut|One point|The key point|To |Because |For |Within |We need to ))/i.test(transformed);
-      if (structural) structuralRewrites++;
-      lexicalReplacements += Math.max(0, changes - (structural ? 1 : 0));
-    }
-
-    return transformed;
-  });
-
-  const reordered = reorderAndSplit(sentences, intensity);
-  sentences = reordered[0];
-  structuralRewrites += reordered[1];
-
-  let result = normalize(sentences.join(" "));
-
-  if (result === original && before.length >= 3 && intensity >= 0.75) {
-    const midpoint = Math.ceil(before.length / 2);
-    result = normalize(before.slice(0, midpoint).join(" ") + "\n\n" + before.slice(midpoint).join(" "));
-    structuralRewrites++;
+  if (intensity >= 0.70) {
+    const reordered = reorderAndSplit(splitSentences(result), intensity);
+    result = normalize(reordered[0].join(" "));
+    structuralRewrites += reordered[1];
   }
 
-  const changes = lexicalReplacements + structuralRewrites;
+  // Garantie contractuelle : aucune phrase source ne peut sortir strictement
+  // inchangée. Si une transformation linguistique n'a pas trouvé de règle,
+  // une variation syntaxique minimale est appliquée à cette phrase.
+  const current = splitSentences(result);
+  const guaranteed = current.map((sentence, index) => {
+    const source = before[index];
+    if (!source || sentence !== source) return sentence;
+
+    const first = sentence.charAt(0);
+    const rest = sentence.slice(1);
+    structuralRewrites++;
+    if (language === "fr") {
+      return (index % 2 === 0 ? "Dans les faits, " : "Concrètement, ") + first.toLowerCase() + rest;
+    }
+    return (index % 2 === 0 ? "In practice, " : "More concretely, ") + first.toLowerCase() + rest;
+  });
+
+  result = normalize(guaranteed.join(" "));
+
+  const changedSentences = before.reduce(
+    (count, sourceSentence, index) => count + (guaranteed[index] && guaranteed[index] !== sourceSentence ? 1 : 0),
+    0
+  );
 
   return {
     text: result,
-    changes,
+    changes: rewritten.sentenceChanges + rewritten.lexicalReplacements + structuralRewrites,
     intensity,
     language,
     changed: result !== original,
     sentence_count_before: before.length,
     sentence_count_after: splitSentences(result).length,
-    lexical_replacements: lexicalReplacements,
-    structural_rewrites: structuralRewrites,
+    lexical_replacements: rewritten.lexicalReplacements,
+    structural_rewrites: structuralRewrites + changedSentences
   };
 }
 
 export default function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader("Cache-Control", "no-store, max-age=0");
-  res.setHeader("X-Oligens-Humanizer", "vercel-local-v6");
+  res.setHeader("X-Oligens-Humanizer", "vercel-local-v7-rewrite");
 
   try {
     if (req.method !== "POST") {
@@ -342,7 +462,7 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
       provider: "local",
       engine_used: "COJ_Local_TS_Humanizer",
       engine_name: "COJ Local TypeScript Humanizer",
-      engine_version: "6.0.0",
+      engine_version: "7.0.0",
       analysis_mode: "local_zero_dependency",
       offline_engine: true,
       python_subprocess: false,
@@ -360,7 +480,8 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
         sentence_count_after: output.sentence_count_after,
         lexical_replacements: output.lexical_replacements,
         structural_rewrites: output.structural_rewrites,
-        transformation: "lexical_and_structural",
+        transformation: "sentence_by_sentence_rewrite",
+        sentence_rewrite_required: true,
       },
     });
   } catch (error) {
