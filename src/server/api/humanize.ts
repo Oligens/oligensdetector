@@ -1,7 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { humanizeLocal, MAX_TEXT_LENGTH, verifySessionCookie } from "./humanizeCore";
 
-const COOKIE = "oligens_session";
 
 function requestText(req: VercelRequest): string {
   const body = req.body && typeof req.body === "object" ? (req.body as Record<string, unknown>) : {};
