@@ -1,15 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import jwt from "jsonwebtoken";
-import { humanizeLocal, MAX_TEXT_LENGTH } from "./humanizeCore";
+import { humanizeLocal, MAX_TEXT_LENGTH, verifySessionCookie } from "./humanizeCore";
 
 const COOKIE = "oligens_session";
-
-function authenticated(req: VercelRequest): boolean {
-  const secret = process.env.AUTH_SECRET?.trim();
-  const token = (req.headers.cookie ?? "").split(";").map((v) => v.trim()).find((v) => v.startsWith(`${COOKIE}=`))?.slice(COOKIE.length + 1);
-  if (!secret || secret.length < 32 || !token) return false;
-  try { jwt.verify(token, secret, { issuer: "oligens-detector" }); return true; } catch { return false; }
-}
 
 function requestText(req: VercelRequest): string {
   const body = req.body && typeof req.body === "object" ? (req.body as Record<string, unknown>) : {};
@@ -21,7 +13,7 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader("X-Oligens-Humanizer", "local-ts-v4");
 
   if (req.method !== "POST") return res.status(405).json({ success: false, error: "Méthode non autorisée.", code: "METHOD_NOT_ALLOWED" });
-  if (!authenticated(req)) return res.status(401).json({ success: false, error: "Connexion requise.", code: "AUTH_REQUIRED" });
+  if (!verifySessionCookie(req.headers.cookie)) return res.status(401).json({ success: false, error: "Connexion requise.", code: "AUTH_REQUIRED" });
 
   const text = requestText(req);
   if (text.length < 20) return res.status(400).json({ success: false, error: "Le texte à humaniser est trop court.", code: "TEXT_TOO_SHORT" });
