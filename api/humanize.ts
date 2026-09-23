@@ -376,6 +376,47 @@ function rewriteEverySentence(text: string, language: "fr" | "en"): {
 }
 
 
+
+function reorderAndSplit(sentences: string[], intensity: number): [string[], number] {
+  if (sentences.length < 2) return [sentences, 0];
+
+  const output = [...sentences];
+  let changes = 0;
+
+  // Réordonne uniquement à intensité élevée et par paires, sans modifier
+  // les phrases elles-mêmes. Cela évite d'introduire des réécritures
+  // aléatoires tout en donnant au moteur un vrai changement structurel.
+  if (intensity >= 0.85) {
+    for (let i = 0; i + 1 < output.length; i += 2) {
+      [output[i], output[i + 1]] = [output[i + 1], output[i]];
+      changes++;
+    }
+  }
+
+  // Pour les phrases très longues, sépare une proposition après une virgule
+  // lorsque les deux segments sont suffisamment longs pour rester lisibles.
+  for (let i = 0; i < output.length; i++) {
+    const sentence = output[i];
+    if (sentence.length < 180) continue;
+
+    const comma = sentence.indexOf(",");
+    if (comma > 45 && comma < sentence.length - 45) {
+      const left = sentence.slice(0, comma).trim();
+      const right = sentence.slice(comma + 1).trim();
+      const terminal = right.match(/[.!?…]+$/)?.[0] ?? "";
+      const rightBody = right.replace(/[.!?…]+$/, "").trim();
+
+      if (left && rightBody) {
+        output.splice(i, 1, preserveTerminalPunctuation(left, "."), rightBody + terminal);
+        changes++;
+        i++;
+      }
+    }
+  }
+
+  return [output, changes];
+}
+
 function humanize(text: string, options: Options): HumanizeResult {
   const original = normalize(text);
   const language = languageOf(original, options.language);
