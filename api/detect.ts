@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
+import { detectPlagiarism, type PlagiarismReference } from "../src/lib/verify/plagiarismEngine";
 import { detectPlagiarism, type PlagiarismSource } from "../src/lib/detector/plagiarismEngine";
 
 const clamp = (v: number, min = 0, max = 1) => Math.max(min, Math.min(max, Number.isFinite(v) ? v : min));
@@ -320,6 +321,13 @@ export default async function detect(req: VercelRequest, res: VercelResponse) {
       python_subprocess: false,
       external_dependency: false,
       processing_time_ms: durationMs,
+      plagiarism: {
+        score: plagiarism.score,
+        verifiedPlagiarism: plagiarism.hits.filter(hit => hit.level === "exact" || hit.level === "forte").length,
+        probableMatches: plagiarism.hits.filter(hit => hit.level === "probable").length,
+        sourceCount: plagiarism.sources,
+        hits: plagiarism.hits.slice(0, 20),
+      },
     });
   } catch (error) {
     console.error("[api/detect] COJ engine failure", error);
