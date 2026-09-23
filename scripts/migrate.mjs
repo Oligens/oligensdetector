@@ -30,7 +30,6 @@ try {
   await apply("002_production_safety.sql");
   await apply("003_zakapro_prices.sql");
   await apply("004_quota_check.sql");
-  await apply("005_web_sources.sql");
   console.log("[migrate] Production-safe migrations completed.");
 } finally {
   await pool.end();
