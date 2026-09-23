@@ -1,5 +1,4 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { detectPlagiarism, type PlagiarismReference } from "../src/lib/verify/plagiarismEngine";
 import { detectPlagiarism, type PlagiarismSource } from "../src/lib/detector/plagiarismEngine";
 
 const clamp = (v: number, min = 0, max = 1) => Math.max(min, Math.min(max, Number.isFinite(v) ? v : min));
