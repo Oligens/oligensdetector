@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
+import { detectPlagiarism, type PlagiarismSource } from "../src/lib/detector/plagiarismEngine";
 
 const clamp = (v: number, min = 0, max = 1) => Math.max(min, Math.min(max, Number.isFinite(v) ? v : min));
 
@@ -183,6 +184,15 @@ export default async function detect(req: VercelRequest, res: VercelResponse) {
     // Charger le moteur COJ à l’intérieur du try/catch afin qu’une erreur
     // d’initialisation/import ne fasse jamais tomber la Vercel Function en 500.
     const local = calculateDetector(text);
+    const rawCorpus = Array.isArray(body.corpus) ? body.corpus : [];
+    const corpus: PlagiarismSource[] = rawCorpus
+      .map((item) => {
+        const row = item as Record<string, unknown>;
+        return { id: String(row.id ?? ""), title: String(row.title ?? row.name ?? "Document source"), text: String(row.text ?? "") };
+      })
+      .filter((item) => item.id && item.text.trim())
+      .slice(0, 100);
+    const plagiarism = detectPlagiarism(text, corpus);
     const ai = local.ai;
     const wordCount = text.match(/[\p{L}\p{N}_']+/gu)?.length ?? 0;
     const sentenceCount = text.split(/[.!?…]+|\n+/).map(s => s.trim()).filter(Boolean).length;
@@ -281,7 +291,15 @@ export default async function detect(req: VercelRequest, res: VercelResponse) {
       statistiques: { mots: wordCount, phrases: sentenceCount, caracteres: text.length },
       langue: language,
       references: { total: 0, douteuses: 0 },
-      plagiat_estime: 0,
+      plagiat_estime: plagiarism.score,
+      plagiarism: {
+        score: plagiarism.score,
+        matchedWords: plagiarism.matchedWords,
+        matchedPhrases: plagiarism.matchedPhrases,
+        sourcesCompared: plagiarism.sourcesCompared,
+        verdict: plagiarism.verdict,
+        matches: plagiarism.matches,
+      },
       processing: { mode: "direct" as const, durationMs, words: wordCount },
       cojDetector: detector,
     };
