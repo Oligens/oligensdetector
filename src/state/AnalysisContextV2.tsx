@@ -149,7 +149,34 @@ export function AnalysisProvider({ children }: { children: ReactNode }) {
           if (runId !== runIdRef.current) return;
           setProgress((value) => value < 88 ? Math.min(88, value + (reduced ? 8 : 1.7) + Math.random() * (reduced ? 8 : 2.5)) : value);
         }, reduced ? 180 : 140);
-        const analysis = await analyzeText(text, { language: "auto" });
+        let corpus: Array<{ id: string; title: string; text: string }> = [];
+        try {
+          const corpusResponse = await fetch("/api/institutional-databases", { credentials: "include" });
+          const corpusData = await corpusResponse.json().catch(() => ({} as Record<string, unknown>));
+          if (corpusResponse.ok && Array.isArray(corpusData.databases)) {
+            for (const database of corpusData.databases as Array<Record<string, unknown>>) {
+              const files = database.metadata && typeof database.metadata === "object"
+                ? (database.metadata as Record<string, unknown>).files
+                : [];
+              if (!Array.isArray(files)) continue;
+              for (const file of files as Array<Record<string, unknown>>) {
+                const sourceText = typeof file.text === "string" ? file.text.trim() : "";
+                if (sourceText.length < 40) continue;
+                corpus.push({
+                  id: String(file.id ?? `${database.id}-${file.name ?? "document"}`),
+                  title: String(file.name ?? database.name ?? "Document source"),
+                  text: sourceText.slice(0, 25_000),
+                });
+                if (corpus.length >= 100) break;
+              }
+              if (corpus.length >= 100) break;
+            }
+          }
+        } catch (corpusError) {
+          console.warn("[plagiarism] institutional corpus unavailable", corpusError);
+        }
+
+        const analysis = await analyzeText(text, { language: "auto", corpus });
         if (runId !== runIdRef.current) return;
         const mapped = mapAnalysis(analysis, payload.name);
 
