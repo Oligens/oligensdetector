@@ -31,13 +31,52 @@ async function loadInstitutionalReferences(): Promise<ReferencePayload[]> {
           refs.push({
             id: String(file.id ?? ""),
             title: String(file.name ?? db.name ?? "Document institutionnel"),
-            text: sourceText,
+            text: sourceText.slice(0, 20_000),
           });
         }
       }
     }
+    return refs.slice(0, 40);
+  } catch {
+    return [];
+  }
+}
 
-    return refs.slice(0, 100);
+async function loadWebReferences(text: string, language: string): Promise<ReferencePayload[]> {
+  try {
+    const response = await fetch("/api/web-search", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, language }),
+    });
+    const data = await response.json().catch(() => ({} as Record<string, unknown>));
+    if (response.ok && Array.isArray(data.sources)) {
+      return data.sources
+        .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object")
+        .map(item => ({
+          id: String(item.id ?? item.url ?? ""),
+          title: String(item.title ?? item.url ?? "Source Web"),
+          text: typeof item.text === "string" ? item.text : "",
+        }))
+        .filter(item => item.text.trim().length >= 80)
+        .slice(0, 18);
+    }
+
+    // Si la clé Web n'est pas encore configurée, on utilise quand même
+    // l'index déjà construit pour ne pas perdre les sources précédemment indexées.
+    const cached = await fetch("/api/web-search", { credentials: "include" });
+    const cachedData = await cached.json().catch(() => ({} as Record<string, unknown>));
+    if (!cached.ok || !Array.isArray(cachedData.sources)) return [];
+    return cachedData.sources
+      .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object")
+      .map(item => ({
+        id: String(item.id ?? item.url ?? ""),
+        title: String(item.title ?? item.url ?? "Source Web"),
+        text: typeof item.text === "string" ? item.text : "",
+      }))
+      .filter(item => item.text.trim().length >= 80)
+      .slice(0, 18);
   } catch {
     return [];
   }
@@ -49,7 +88,12 @@ export async function analyzeText(text: string, options?: RunOptions & { corpus?
   if (!clean) throw new Error("Aucun texte à analyser.");
 
   const startedAt = performance.now();
-  const referenceTexts = await loadInstitutionalReferences();
+  const language = options?.language === "fr" ? "fr" : "en";
+  const [institutionalReferences, webReferences] = await Promise.all([
+    loadInstitutionalReferences(),
+    loadWebReferences(clean, language),
+  ]);
+  const referenceTexts = [...institutionalReferences, ...webReferences].slice(0, 58);
 
   const response = await fetch("/api/detect", {
     method: "POST",
