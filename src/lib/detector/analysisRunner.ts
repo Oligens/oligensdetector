@@ -56,7 +56,7 @@ async function loadWebReferences(text: string, language: string): Promise<Refere
         .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object")
         .map(item => ({
           id: String(item.id ?? item.url ?? ""),
-          title: String(item.title ?? item.url ?? "Source Web"),
+          title: `${String(item.title ?? "Source Web")} — ${String(item.url ?? "")}`,
           text: typeof item.text === "string" ? item.text : "",
         }))
         .filter(item => item.text.trim().length >= 80)
@@ -72,7 +72,7 @@ async function loadWebReferences(text: string, language: string): Promise<Refere
       .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object")
       .map(item => ({
         id: String(item.id ?? item.url ?? ""),
-        title: String(item.title ?? item.url ?? "Source Web"),
+        title: `${String(item.title ?? "Source Web")} — ${String(item.url ?? "")}`,
         text: typeof item.text === "string" ? item.text : "",
       }))
       .filter(item => item.text.trim().length >= 80)
@@ -88,7 +88,7 @@ export async function analyzeText(text: string, options?: RunOptions & { corpus?
   if (!clean) throw new Error("Aucun texte à analyser.");
 
   const startedAt = performance.now();
-  const language = options?.language === "fr" ? "fr" : "en";
+  const language = options?.language === "fr" || /\b(le|la|les|des|une|dans|pour|avec|que|qui|est|et|du|au|aux)\b/iu.test(clean) ? "fr" : "en";
   const [institutionalReferences, webReferences] = await Promise.all([
     loadInstitutionalReferences(),
     loadWebReferences(clean, language),
