@@ -69,6 +69,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const path = parts.filter(Boolean).join("/");
     switch (path) {
       case "detect": return (await import("../src/server/api/detect")).default(req, res);
+      case "web-search": return (await import("../src/server/api/webSearch")).default(req, res);
       case "humanize": return (await import("../src/server/api/humanize")).default(req, res);
       case "settings": return (await import("../src/server/api/settings")).default(req, res);
       case "copyleaks/scan": return (await import("../src/server/api/copyleaksScan")).default(req, res);
