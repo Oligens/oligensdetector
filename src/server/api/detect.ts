@@ -172,10 +172,10 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
       result: analysis,
       engine: detector.engine,
       engine_used: detector.engine,
-      analysis_mode: "coj_neuro_heuristic_typescript",
-      offline_engine: true,
+      analysis_mode: referenceTexts.length ? "coj_neuro_heuristic_typescript_web_index" : "coj_neuro_heuristic_typescript",
+      offline_engine: referenceTexts.length === 0,
       python_subprocess: false,
-      external_dependency: false,
+      external_dependency: referenceTexts.length > 0,
       processing_time_ms: Date.now() - started,
     });
   } catch (error) {
