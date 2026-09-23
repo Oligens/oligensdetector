@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import crypto from "node:crypto";
 import { runPythonDetectorPort } from "../../lib/engines/pythonPort/detectorEngine";
+import { detectPlagiarism, type PlagiarismReference } from "../../lib/verify/plagiarismEngine";
 
 const COOKIE = "oligens_session";
 
@@ -63,7 +64,7 @@ function confidence(wordCount: number): "Faible" | "Moyenne" | "Élevée" {
   return "Élevée";
 }
 
-function buildAnalysis(text: string, detector: ReturnType<typeof runPythonDetectorPort>) {
+function buildAnalysis(text: string, detector: ReturnType<typeof runPythonDetectorPort>, plagiarism: ReturnType<typeof detectPlagiarism>) {
   const tokens = text.match(/[\p{L}\p{N}']+/gu) ?? [];
   const sentences = text.split(/[.!?]+\s*|\n+/).map(s => s.trim()).filter(Boolean);
   const wordCount = tokens.length;
@@ -116,7 +117,19 @@ function buildAnalysis(text: string, detector: ReturnType<typeof runPythonDetect
     statistiques: { mots: wordCount, phrases: sentences.length, caracteres: chars },
     langue: language(undefined, text),
     references: { total: 0, douteuses: 0 },
-    plagiat_estime: 0,
+    plagiat_estime: plagiarism.score,
+    similarity: {
+      analyzedSentences: plagiarism.analyzedSentences,
+      matchedSentences: plagiarism.matchedSentences,
+      sources: plagiarism.sources,
+      hits: plagiarism.hits,
+    },
+    plagiarism: {
+      score: plagiarism.score,
+      verifiedPlagiarism: plagiarism.hits.filter(hit => hit.level === "exact" || hit.level === "forte").length,
+      probableMatches: plagiarism.hits.filter(hit => hit.level === "probable").length,
+      sourceCount: plagiarism.sources,
+    },
     processing: { mode: "direct" as const, durationMs: 0, words: wordCount },
     pythonDetector: detector,
   };
@@ -135,7 +148,17 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
   const started = Date.now();
   try {
     const detector = runPythonDetectorPort(text);
-    const analysis = buildAnalysis(text, detector);
+    const rawReferences = Array.isArray(body.referenceTexts) ? body.referenceTexts : [];
+    const referenceTexts: PlagiarismReference[] = rawReferences
+      .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object")
+      .map(item => ({
+        id: typeof item.id === "string" ? item.id : undefined,
+        title: typeof item.title === "string" ? item.title : undefined,
+        text: typeof item.text === "string" ? item.text : "",
+      }))
+      .filter(item => item.text.trim().length >= 40);
+    const plagiarism = detectPlagiarism(text, referenceTexts);
+    const analysis = buildAnalysis(text, detector, plagiarism);
     analysis.langue = language(body.language, text);
     analysis.processing.durationMs = Date.now() - started;
     return res.status(200).json({
@@ -173,7 +196,7 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
       score: 0,
       is_ai_generated: false,
       confidence_score: 0,
-      analysis: buildAnalysis(text, fallback),
+      analysis: buildAnalysis(text, fallback, detectPlagiarism(text, [])),
       engine: "coj-neuro-heuristic-typescript",
       engine_used: "coj-neuro-heuristic-typescript",
       analysis_mode: "safe_fallback",
