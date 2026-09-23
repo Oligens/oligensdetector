@@ -1,4 +1,5 @@
 import type { FullAnalysisResult, RunOptions } from "./heuristicEngine";
+import type { PlagiarismSource } from "./plagiarismEngine";
 
 function countWords(text: string): number {
   return (text.toLocaleLowerCase().match(/[\p{L}\p{N}']+/gu) ?? []).length;
@@ -43,7 +44,7 @@ async function loadInstitutionalReferences(): Promise<ReferencePayload[]> {
 }
 
 /** Canonical browser entry point: every UI analysis uses /api/detect. */
-export async function analyzeText(text: string, options?: RunOptions): Promise<FullAnalysisResult> {
+export async function analyzeText(text: string, options?: RunOptions & { corpus?: PlagiarismSource[] }): Promise<FullAnalysisResult> {
   const clean = text.trim();
   if (!clean) throw new Error("Aucun texte à analyser.");
 
