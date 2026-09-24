@@ -68,6 +68,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const parts = Array.isArray(raw) ? raw : typeof raw === "string" ? raw.split("/") : [];
     const path = parts.filter(Boolean).join("/");
     switch (path) {
+      case "admin/login": return (await import("../src/server/api/admin")).default(req, res);
+      case "admin/session": return (await import("../src/server/api/admin")).default(req, res);
+      case "admin/logout": return (await import("../src/server/api/admin")).default(req, res);
+      case "admin/keys": return (await import("../src/server/api/admin")).default(req, res);
       case "detect": return (await import("../src/server/api/detect")).default(req, res);
       case "humanize": return (await import("../src/server/api/humanize")).default(req, res);
       case "settings": return (await import("../src/server/api/settings")).default(req, res);
