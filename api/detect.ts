@@ -322,10 +322,10 @@ export default async function detect(req: VercelRequest, res: VercelResponse) {
       processing_time_ms: durationMs,
       plagiarism: {
         score: plagiarism.score,
-        verifiedPlagiarism: plagiarism.hits.filter(hit => hit.level === "exact" || hit.level === "forte").length,
-        probableMatches: plagiarism.hits.filter(hit => hit.level === "probable").length,
-        sourceCount: plagiarism.sources,
-        hits: plagiarism.hits.slice(0, 20),
+        verifiedPlagiarism: plagiarism.matches.filter(match => match.score >= 0.35).length,
+        probableMatches: plagiarism.matches.filter(match => match.score >= 0.08 && match.score < 0.35).length,
+        sourceCount: plagiarism.sourcesCompared,
+        hits: plagiarism.matches.slice(0, 20),
       },
     });
   } catch (error) {
