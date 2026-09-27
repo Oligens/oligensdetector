@@ -31,6 +31,7 @@ try {
   await apply("003_zakapro_prices.sql");
   await apply("004_quota_check.sql");
   await apply("005_admin_security.sql");
+  await apply("006_api_service_keys.sql");
   console.log("[migrate] Production-safe migrations completed.");
 } finally {
   await pool.end();
