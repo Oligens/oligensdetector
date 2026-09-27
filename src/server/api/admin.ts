@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import crypto from "node:crypto";
 import { Pool, type QueryResultRow } from "pg";
 
 const COOKIE = "oligens_admin_session";
@@ -190,11 +191,10 @@ type ApiService = "gemini" | "humanizer" | "plagiarism" | "hallucination" | "ref
 function encryptionKey() {
   const value = process.env.API_KEY_ENCRYPTION_SECRET?.trim();
   if (!value || value.length < 32) throw new Error("API_KEY_ENCRYPTION_SECRET doit contenir au moins 32 caractères.");
-  return require("node:crypto").createHash("sha256").update(value, "utf8").digest();
+  return crypto.createHash("sha256").update(value, "utf8").digest();
 }
 
 function encryptApiKey(value: string) {
-  const crypto = require("node:crypto") as typeof import("node:crypto");
   const key = encryptionKey();
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
