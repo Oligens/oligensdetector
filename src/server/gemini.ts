@@ -1,4 +1,5 @@
 import { Pool, type QueryResultRow } from "pg";
+import { getActiveApiKeys, isRetryableProviderError } from "./apiKeys";
 
 const MODEL = "gemini-2.5-flash";
 const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
@@ -43,8 +44,7 @@ function extractText(data: GeminiResponse): string {
 }
 
 function isRetryableKeyError(status: number, message: string) {
-  return status === 401 || status === 403 || status === 429 ||
-    /invalid.*key|api key|quota|resource exhausted|rate limit|permission/i.test(message);
+  return isRetryableProviderError(status, message);
 }
 
 export async function generateGeminiText(input: {
@@ -52,15 +52,23 @@ export async function generateGeminiText(input: {
   language?: string;
   mode?: "standard" | "ultra";
 }) {
-  const result = await query<{ gemini_api_keys: string[] | null }>(
-    "SELECT gemini_api_keys FROM admin_users WHERE LOWER(email)=LOWER($1) LIMIT 1",
-    ["cleefolig@gmail.com"],
-  );
-  const keys = Array.isArray(result.rows[0]?.gemini_api_keys)
-    ? result.rows[0].gemini_api_keys.map(String).map(key => key.trim()).filter(Boolean)
-    : [];
+  let managed: Array<{ id: string; key: string }> = [];
+  try {
+    managed = await getActiveApiKeys("gemini");
+  } catch (error) {
+    const legacy = await query<{ gemini_api_keys: string[] | null }>(
+      "SELECT gemini_api_keys FROM admin_users WHERE LOWER(email)=LOWER($1) LIMIT 1",
+      ["cleefolig@gmail.com"],
+    );
+    const keys = Array.isArray(legacy.rows[0]?.gemini_api_keys)
+      ? legacy.rows[0].gemini_api_keys.map(String).map(key => key.trim()).filter(Boolean)
+      : [];
+    if (!keys.length) throw error;
+    managed = keys.map((key, index) => ({ id: `legacy-${index}`, key }));
+  }
 
-  if (!keys.length) throw new Error("Aucune clé Gemini active dans Neon.");
+  if (!managed.length) throw new Error("Aucune clé Gemini active dans Neon.");
+  const keys = managed.map(item => item.key);
 
   // Rotation déterministe par tranche de temps : plusieurs requêtes rapprochées
   // ne dépendent pas d'un état global de Function Vercel.
