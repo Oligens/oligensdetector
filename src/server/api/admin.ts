@@ -185,63 +185,150 @@ async function logout(req: VercelRequest, res: VercelResponse) {
   return res.status(200).json({ ok: true });
 }
 
-async function keys(req: VercelRequest, res: VercelResponse) {
+type ApiService = "gemini" | "humanizer" | "plagiarism" | "hallucination" | "references";
+
+function encryptionKey() {
+  const value = process.env.API_KEY_ENCRYPTION_SECRET?.trim();
+  if (!value || value.length < 32) throw new Error("API_KEY_ENCRYPTION_SECRET doit contenir au moins 32 caractères.");
+  return require("node:crypto").createHash("sha256").update(value, "utf8").digest();
+}
+
+function encryptApiKey(value: string) {
+  const crypto = require("node:crypto") as typeof import("node:crypto");
+  const key = encryptionKey();
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
+  const ciphertext = Buffer.concat([cipher.update(value, "utf8"), cipher.final()]);
+  return ["v1", iv.toString("base64url"), cipher.getAuthTag().toString("base64url"), ciphertext.toString("base64url")].join(".");
+}
+
+function maskStoredKey(value: string) {
+  try {
+    const parts = value.split(".");
+    if (parts.length === 4 && parts[0] === "v1") return "••••••••••••";
+  } catch {}
+  return maskKey(value);
+}
+
+async function serviceKeys(req: VercelRequest, res: VercelResponse) {
   try {
     const admin = await requireAdmin(req);
     if (!admin) return jsonError(res, 401, "Authentification administrateur requise.", "ADMIN_AUTH_REQUIRED");
 
-    const result = await query<{ gemini_api_keys: string[] | null }>(
-      "SELECT gemini_api_keys FROM admin_users WHERE id=$1",
-      [admin.id],
-    );
-    const raw = Array.isArray(result.rows[0]?.gemini_api_keys) ? result.rows[0].gemini_api_keys : [];
-    const masked = raw.map((key, index) => ({
-      id: String(index),
-      label: `Clé Gemini ${index + 1}`,
-      masked: maskKey(String(key)),
-    }));
+    const rawService = typeof req.query.service === "string" ? req.query.service : undefined;
+    const requestedService = String(requestBody(req).service ?? rawService ?? "gemini") as ApiService;
+    const services: ApiService[] = ["gemini", "humanizer", "plagiarism", "hallucination", "references"];
+    if (!services.includes(requestedService)) {
+      return jsonError(res, 400, "Service API invalide.", "INVALID_API_SERVICE");
+    }
 
     if (req.method === "GET") {
-      return res.status(200).json({ keys: masked, count: masked.length });
+      const result = await query<{
+        id: string;
+        service_name: ApiService;
+        key_name: string;
+        encrypted_api_key: string;
+        is_active: boolean;
+        priority: number;
+        usage_count: string;
+        failure_count: number;
+        last_used_at: string | null;
+        last_failure_at: string | null;
+        created_at: string;
+      }>(
+        `SELECT id::text AS id,service_name,key_name,encrypted_api_key,is_active,priority,
+                usage_count::text AS usage_count,failure_count,last_used_at,last_failure_at,created_at
+         FROM api_service_keys
+         WHERE service_name=$1
+         ORDER BY priority ASC,created_at ASC`,
+        [requestedService],
+      );
+      return res.status(200).json({
+        service: requestedService,
+        keys: result.rows.map(row => ({
+          id: row.id,
+          service: row.service_name,
+          name: row.key_name,
+          masked: maskStoredKey(row.encrypted_api_key),
+          active: row.is_active,
+          priority: row.priority,
+          usageCount: Number(row.usage_count ?? 0),
+          failureCount: row.failure_count,
+          lastUsedAt: row.last_used_at,
+          lastFailureAt: row.last_failure_at,
+          createdAt: row.created_at,
+        })),
+      });
     }
 
     if (req.method === "POST") {
-      const value = String(requestBody(req).key ?? "").trim();
-      if (value.length < 20 || value.length > 512) {
-        return jsonError(res, 400, "Clé Gemini invalide.", "INVALID_GEMINI_KEY");
+      if (!process.env.API_KEY_ENCRYPTION_SECRET?.trim()) {
+        return jsonError(res, 503, "Le coffre de chiffrement API_KEY_ENCRYPTION_SECRET n'est pas configuré sur Vercel.", "API_KEY_ENCRYPTION_SECRET_NOT_CONFIGURED");
       }
-      if (raw.includes(value)) {
-        return jsonError(res, 409, "Cette clé est déjà enregistrée.", "DUPLICATE_GEMINI_KEY");
-      }
-      if (raw.length >= 50) {
-        return jsonError(res, 400, "Limite de 50 clés atteinte.", "KEY_LIMIT_REACHED");
-      }
-      await query(
-        "UPDATE admin_users SET gemini_api_keys=array_append(COALESCE(gemini_api_keys,'{}'::text[]),$1), updated_at=NOW() WHERE id=$2",
-        [value, admin.id],
+      const b = requestBody(req);
+      const value = String(b.key ?? "").trim();
+      const keyName = String(b.name ?? `${requestedService}-${Date.now()}`).trim().slice(0, 120);
+      const priority = Math.max(0, Math.min(100000, Number(b.priority ?? 100)));
+      if (value.length < 8 || value.length > 4096) return jsonError(res, 400, "Clé API invalide.", "INVALID_API_KEY");
+      if (!keyName) return jsonError(res, 400, "Nom de clé requis.", "INVALID_KEY_NAME");
+      if (!Number.isInteger(priority)) return jsonError(res, 400, "Priorité invalide.", "INVALID_PRIORITY");
+
+      const duplicate = await query<{ id: string }>(
+        "SELECT id::text AS id FROM api_service_keys WHERE service_name=$1 AND key_name=$2 LIMIT 1",
+        [requestedService, keyName],
       );
-      return res.status(201).json({ ok: true, key: { id: String(raw.length), label: `Clé Gemini ${raw.length + 1}`, masked: maskKey(value) } });
+      if (duplicate.rowCount) return jsonError(res, 409, "Une clé portant ce nom existe déjà pour ce service.", "DUPLICATE_KEY_NAME");
+
+      const encrypted = encryptApiKey(value);
+      const inserted = await query<{ id: string }>(
+        `INSERT INTO api_service_keys(service_name,key_name,encrypted_api_key,is_active,priority,created_by,updated_by)
+         VALUES($1,$2,$3,TRUE,$4,$5,$5) RETURNING id::text AS id`,
+        [requestedService, keyName, encrypted, priority, admin.id],
+      );
+      return res.status(201).json({
+        ok: true,
+        key: { id: inserted.rows[0]?.id, service: requestedService, name: keyName, masked: "••••••••••••", active: true, priority },
+      });
+    }
+
+    if (req.method === "PATCH") {
+      const id = String(requestBody(req).id ?? "").trim();
+      if (!id) return jsonError(res, 400, "Identifiant de clé requis.", "INVALID_KEY_ID");
+      const active = requestBody(req).active;
+      const priority = requestBody(req).priority;
+      if (typeof active !== "boolean" && priority === undefined) {
+        return jsonError(res, 400, "Aucune modification demandée.", "NO_KEY_UPDATE");
+      }
+      if (typeof active === "boolean" && priority !== undefined) {
+        const n = Number(priority);
+        if (!Number.isInteger(n) || n < 0) return jsonError(res, 400, "Priorité invalide.", "INVALID_PRIORITY");
+        await query("UPDATE api_service_keys SET is_active=$1,priority=$2,updated_by=$3 WHERE id=$4 AND service_name=$5", [active,n,admin.id,id,requestedService]);
+      } else if (typeof active === "boolean") {
+        await query("UPDATE api_service_keys SET is_active=$1,updated_by=$2 WHERE id=$3 AND service_name=$4", [active,admin.id,id,requestedService]);
+      } else {
+        const n = Number(priority);
+        if (!Number.isInteger(n) || n < 0) return jsonError(res, 400, "Priorité invalide.", "INVALID_PRIORITY");
+        await query("UPDATE api_service_keys SET priority=$1,updated_by=$2 WHERE id=$3 AND service_name=$4", [n,admin.id,id,requestedService]);
+      }
+      return res.status(200).json({ ok: true });
     }
 
     if (req.method === "DELETE") {
-      const index = Number(requestBody(req).index ?? req.query.index);
-      if (!Number.isInteger(index) || index < 0 || index >= raw.length) {
-        return jsonError(res, 400, "Index de clé invalide.", "INVALID_KEY_INDEX");
-      }
-      const next = raw.filter((_, i) => i !== index);
-      await query(
-        "UPDATE admin_users SET gemini_api_keys=$1::text[], updated_at=NOW() WHERE id=$2",
-        [next, admin.id],
-      );
-      return res.status(200).json({ ok: true, count: next.length });
+      const id = String(requestBody(req).id ?? req.query.id ?? "").trim();
+      if (!id) return jsonError(res, 400, "Identifiant de clé requis.", "INVALID_KEY_ID");
+      await query("DELETE FROM api_service_keys WHERE id=$1 AND service_name=$2", [id,requestedService]);
+      return res.status(200).json({ ok: true });
     }
 
     return jsonError(res, 405, "Méthode non autorisée.", "METHOD_NOT_ALLOWED");
   } catch (error) {
-    console.error("[admin/keys]", error);
-    return jsonError(res, 503, "Gestion des clés temporairement indisponible.", "ADMIN_KEYS_UNAVAILABLE");
+    console.error("[admin/service-keys]", error);
+    const message = error instanceof Error ? error.message : "Gestion des clés indisponible.";
+    if (message.includes("API_KEY_ENCRYPTION_SECRET")) return jsonError(res, 503, message, "API_KEY_ENCRYPTION_SECRET_NOT_CONFIGURED");
+    return jsonError(res, 503, "Gestion des clés API temporairement indisponible.", "ADMIN_SERVICE_KEYS_UNAVAILABLE");
   }
 }
+
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const raw = req.query.all;
@@ -250,6 +337,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (path === "login") return login(req, res);
   if (path === "session") return session(req, res);
   if (path === "logout") return logout(req, res);
-  if (path === "keys") return keys(req, res);
+  if (path === "keys") return serviceKeys(req, res);
   return jsonError(res, 404, "Route administrateur introuvable.", "ADMIN_ROUTE_NOT_FOUND");
 }
