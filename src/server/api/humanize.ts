@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { humanizeLocal, MAX_TEXT_LENGTH, verifySessionCookie } from "./humanizeCore";
 import { generateGeminiText } from "../gemini";
+import { isApiKeyUnavailable } from "../apiKeys";
 
 function requestText(req: VercelRequest): string {
   const body = req.body && typeof req.body === "object" ? (req.body as Record<string, unknown>) : {};
@@ -45,6 +46,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
     throw new Error("Gemini a renvoyé un résultat vide ou inchangé.");
   } catch (error) {
+    if (isApiKeyUnavailable(error)) {
+      return res.status(503).json({
+        success: false,
+        error: error.message,
+        code: "API_KEY_UNAVAILABLE",
+        service: "gemini",
+      });
+    }
     console.error("[api/humanize] Gemini failed; using local safe fallback", error);
     try {
       const transformed = humanizeLocal(text, { intensity: body.intensity, language: body.language, mode: body.mode });
