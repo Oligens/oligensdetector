@@ -43,16 +43,13 @@ async function query<T extends QueryResultRow = QueryResultRow>(
   return getPool().query<T>(sql, values);
 }
 
-let adminSchemaPromise: Promise<void> | undefined;
+let adminUsersSchemaPromise: Promise<void> | undefined;
+let serviceKeysSchemaPromise: Promise<void> | undefined;
 
-async function ensureAdminSchema() {
-  if (adminSchemaPromise) return adminSchemaPromise;
+async function ensureAdminUsersSchema() {
+  if (adminUsersSchemaPromise) return adminUsersSchemaPromise;
 
-  adminSchemaPromise = (async () => {
-    // Vercel does not automatically run scripts/migrate.mjs. The admin API
-    // therefore verifies/creates only its own non-destructive tables at runtime.
-    await query(`CREATE EXTENSION IF NOT EXISTS pgcrypto`);
-
+  adminUsersSchemaPromise = (async () => {
     await query(`
       CREATE TABLE IF NOT EXISTS admin_users (
         id BIGSERIAL PRIMARY KEY,
@@ -75,8 +72,7 @@ async function ensureAdminSchema() {
     await query(`ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP`);
     await query(`CREATE INDEX IF NOT EXISTS idx_admin_users_email ON admin_users (LOWER(email))`);
 
-    // Seed only when the administrator row is absent. Existing credentials are
-    // never overwritten by the runtime repair.
+    // Seed only when the administrator row is absent. Existing credentials are never overwritten.
     await query(
       `INSERT INTO admin_users (email,password_hash,gemini_api_keys)
        VALUES ($1,$2,ARRAY[]::TEXT[])
@@ -86,7 +82,19 @@ async function ensureAdminSchema() {
         "$2b$12$cQCh0LwHa1mlJKDM4Dulwe6x8K0SeRcMBrC7sOZt9TK0jc0h/FToy",
       ],
     );
+  })().catch((error) => {
+    adminUsersSchemaPromise = undefined;
+    throw error;
+  });
 
+  return adminUsersSchemaPromise;
+}
+
+async function ensureServiceKeysSchema() {
+  if (serviceKeysSchemaPromise) return serviceKeysSchemaPromise;
+
+  serviceKeysSchemaPromise = (async () => {
+    await ensureAdminUsersSchema();
     await query(`
       CREATE TABLE IF NOT EXISTS api_service_keys (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -109,11 +117,11 @@ async function ensureAdminSchema() {
     await query(`CREATE INDEX IF NOT EXISTS idx_api_service_keys_active ON api_service_keys(service_name,is_active,priority)`);
     await query(`CREATE INDEX IF NOT EXISTS idx_api_service_keys_service ON api_service_keys(service_name)`);
   })().catch((error) => {
-    adminSchemaPromise = undefined;
+    serviceKeysSchemaPromise = undefined;
     throw error;
   });
 
-  return adminSchemaPromise;
+  return serviceKeysSchemaPromise;
 }
 
 function secret() {
@@ -157,7 +165,7 @@ function clearAdminSession(res: VercelResponse) {
 }
 
 async function requireAdmin(req: VercelRequest) {
-  await ensureAdminSchema();
+  await ensureAdminUsersSchema();
   const token = adminToken(req);
   if (!token) return null;
 
@@ -193,7 +201,7 @@ async function login(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "POST") return jsonError(res, 405, "Méthode non autorisée.", "METHOD_NOT_ALLOWED");
 
   try {
-    await ensureAdminSchema();
+    await ensureAdminUsersSchema();
     const b = requestBody(req);
     const email = String(b.email ?? "").trim().toLowerCase();
     const password = String(b.password ?? "");
@@ -287,7 +295,7 @@ function maskStoredKey(value: string) {
 
 async function serviceKeys(req: VercelRequest, res: VercelResponse) {
   try {
-    await ensureAdminSchema();
+    await ensureServiceKeysSchema();
     const admin = await requireAdmin(req);
     if (!admin) return jsonError(res, 401, "Authentification administrateur requise.", "ADMIN_AUTH_REQUIRED");
 
