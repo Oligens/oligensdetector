@@ -10,10 +10,6 @@
       "destination": "/api/[...all]?all=auth/:route*"
     },
     {
-      "source": "/api/admin/:route*",
-      "destination": "/api/[...all]?all=admin/:route*"
-    },
-    {
       "source": "/api/stats",
       "destination": "/api/[...all]?all=stats"
     },
