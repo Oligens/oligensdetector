@@ -251,7 +251,17 @@ async function login(req: VercelRequest, res: VercelResponse) {
     return res.status(200).json({ authenticated: true, admin: { id: admin.id, email: admin.email } });
   } catch (error) {
     console.error("[admin/login]", error);
-    return jsonError(res, 503, "Service administrateur temporairement indisponible.", "ADMIN_SERVICE_UNAVAILABLE");
+    const message = error instanceof Error ? error.message : "Service administrateur indisponible.";
+    if (/DATABASE_URL|POSTGRES_URL|ENOTFOUND|ECONNREFUSED|ETIMEDOUT|certificate|SSL|connection/i.test(message)) {
+      return jsonError(res, 500, "Connexion à la base de données administrateur impossible.", "ADMIN_DATABASE_ERROR");
+    }
+    if (/AUTH_SECRET/i.test(message)) {
+      return jsonError(res, 500, "AUTH_SECRET est absent ou invalide sur le serveur.", "AUTH_SECRET_NOT_CONFIGURED");
+    }
+    if (/admin_users|relation .* does not exist|permission denied/i.test(message)) {
+      return jsonError(res, 500, "La table admin_users est absente ou inaccessible.", "ADMIN_USERS_TABLE_ERROR");
+    }
+    return jsonError(res, 500, "Erreur interne lors de la connexion administrateur.", "ADMIN_LOGIN_INTERNAL_ERROR");
   }
 }
 
@@ -263,7 +273,17 @@ async function session(req: VercelRequest, res: VercelResponse) {
     return res.status(200).json({ authenticated: true, admin });
   } catch (error) {
     console.error("[admin/session]", error);
-    return jsonError(res, 503, "Session administrateur indisponible.", "ADMIN_SESSION_UNAVAILABLE");
+    const message = error instanceof Error ? error.message : "Session administrateur indisponible.";
+    if (/DATABASE_URL|POSTGRES_URL|ENOTFOUND|ECONNREFUSED|ETIMEDOUT|certificate|SSL|connection/i.test(message)) {
+      return jsonError(res, 500, "Connexion à la base de données administrateur impossible.", "ADMIN_DATABASE_ERROR");
+    }
+    if (/AUTH_SECRET/i.test(message)) {
+      return jsonError(res, 500, "AUTH_SECRET est absent ou invalide sur le serveur.", "AUTH_SECRET_NOT_CONFIGURED");
+    }
+    if (/admin_users|relation .* does not exist|permission denied/i.test(message)) {
+      return jsonError(res, 500, "La table admin_users est absente ou inaccessible.", "ADMIN_USERS_TABLE_ERROR");
+    }
+    return jsonError(res, 500, "Erreur interne pendant la vérification de session.", "ADMIN_SESSION_INTERNAL_ERROR");
   }
 }
 
