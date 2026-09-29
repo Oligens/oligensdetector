@@ -165,9 +165,13 @@ function clearAdminSession(res: VercelResponse) {
 }
 
 async function requireAdmin(req: VercelRequest) {
-  await ensureAdminUsersSchema();
+  // A public session probe must not touch Neon when there is no admin cookie.
+  // This prevents a database/schema outage from turning a normal unauthenticated
+  // request into a 503. Login is the operation that requires the database.
   const token = adminToken(req);
   if (!token) return null;
+
+  await ensureAdminUsersSchema();
 
   let payload: jwt.JwtPayload;
   try {
