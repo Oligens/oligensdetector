@@ -198,7 +198,7 @@ function maskKey(key: string) {
 }
 
 function jsonError(res: VercelResponse, status: number, error: string, code: string) {
-  return res.status(status).json({ error, code });
+  return res.status(status).json({ success: false, error, code });
 }
 
 async function login(req: VercelRequest, res: VercelResponse) {
@@ -272,18 +272,16 @@ async function session(req: VercelRequest, res: VercelResponse) {
     if (!admin) return res.status(401).json({ authenticated: false });
     return res.status(200).json({ authenticated: true, admin });
   } catch (error) {
+    // Session is a probe: any failure to validate an existing/stale cookie
+    // must fail closed as unauthenticated, not break the application with a 500.
     console.error("[admin/session]", error);
-    const message = error instanceof Error ? error.message : "Session administrateur indisponible.";
-    if (/DATABASE_URL|POSTGRES_URL|ENOTFOUND|ECONNREFUSED|ETIMEDOUT|certificate|SSL|connection/i.test(message)) {
-      return jsonError(res, 500, "Connexion à la base de données administrateur impossible.", "ADMIN_DATABASE_ERROR");
-    }
-    if (/AUTH_SECRET/i.test(message)) {
-      return jsonError(res, 500, "AUTH_SECRET est absent ou invalide sur le serveur.", "AUTH_SECRET_NOT_CONFIGURED");
-    }
-    if (/admin_users|relation .* does not exist|permission denied/i.test(message)) {
-      return jsonError(res, 500, "La table admin_users est absente ou inaccessible.", "ADMIN_USERS_TABLE_ERROR");
-    }
-    return jsonError(res, 500, "Erreur interne pendant la vérification de session.", "ADMIN_SESSION_INTERNAL_ERROR");
+    clearAdminSession(res);
+    return res.status(401).json({
+      success: false,
+      authenticated: false,
+      error: "Session administrateur invalide ou indisponible.",
+      code: "ADMIN_SESSION_UNAUTHENTICATED",
+    });
   }
 }
 
