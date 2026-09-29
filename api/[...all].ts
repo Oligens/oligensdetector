@@ -4,7 +4,6 @@ import jwt from "jsonwebtoken";
 import crypto from "node:crypto";
 import nodemailer from "nodemailer";
 import { Pool, type PoolClient, type QueryResultRow } from "pg";
-import adminHandler from "../src/server/api/admin";
 
 const COOKIE = "oligens_session";
 const MAX_BYTES = 25 * 1024 * 1024;
@@ -69,10 +68,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const parts = Array.isArray(raw) ? raw : typeof raw === "string" ? raw.split("/") : [];
     const path = parts.filter(Boolean).join("/");
     switch (path) {
-      case "admin/login": return adminHandler(req, res);
-      case "admin/session": return adminHandler(req, res);
-      case "admin/logout": return adminHandler(req, res);
-      case "admin/keys": return adminHandler(req, res);
       case "detect": return (await import("../src/server/api/detect")).default(req, res);
       case "humanize": return (await import("../src/server/api/humanize")).default(req, res);
       case "settings": return (await import("../src/server/api/settings")).default(req, res);
