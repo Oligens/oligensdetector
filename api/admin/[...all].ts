@@ -10,20 +10,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     console.error("[api/admin]", error);
     const message = error instanceof Error ? error.message : "Service administrateur indisponible.";
     if (/DATABASE_URL|POSTGRES_URL|ENOTFOUND|ECONNREFUSED|ETIMEDOUT|certificate|SSL|connection/i.test(message)) {
-      return res.status(503).json({
-        error: "Base de données administrateur temporairement indisponible.",
-        code: "ADMIN_DATABASE_UNAVAILABLE",
+      return res.status(500).json({
+        error: "Connexion à la base de données administrateur impossible.",
+        code: "ADMIN_DATABASE_ERROR",
       });
     }
     if (/AUTH_SECRET/i.test(message)) {
-      return res.status(503).json({
-        error: "Authentification administrateur non configurée sur le serveur.",
+      return res.status(500).json({
+        error: "AUTH_SECRET est absent ou invalide sur le serveur.",
         code: "AUTH_SECRET_NOT_CONFIGURED",
       });
     }
-    return res.status(503).json({
-      error: "Service administrateur temporairement indisponible.",
-      code: "ADMIN_FUNCTION_UNAVAILABLE",
+    return res.status(500).json({
+      error: "Erreur interne du service administrateur.",
+      code: "ADMIN_FUNCTION_ERROR",
     });
   }
 }
