@@ -39,6 +39,7 @@ function clearCookie(res: VercelResponse) {
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader("Cache-Control", "no-store, max-age=0");
+  res.setHeader("X-Oligens-Admin-Session", "2026-10-08-v2");
 
   if (req.method !== "GET") {
     return res.status(405).json({ authenticated: false, error: "Méthode non autorisée.", code: "METHOD_NOT_ALLOWED" });
@@ -46,19 +47,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   // No cookie: never touch Neon or AUTH_SECRET. This must always be a clean 401.
   const token = tokenFromRequest(req);
-  if (!token) return res.status(401).json({ authenticated: false });
+  if (!token) return res.status(200).json({ authenticated: false, admin: null });
 
   try {
     const secret = process.env.AUTH_SECRET?.trim();
     if (!secret || secret.length < 32) {
       clearCookie(res);
-      return res.status(401).json({ authenticated: false, error: "Session administrateur indisponible.", code: "AUTH_SECRET_NOT_CONFIGURED" });
+      return res.status(200).json({ authenticated: false, admin: null, error: "Session administrateur indisponible.", code: "AUTH_SECRET_NOT_CONFIGURED" });
     }
 
     const payload = jwt.verify(token, secret, { issuer: "oligens-admin" }) as jwt.JwtPayload;
     if (!payload.sub) {
       clearCookie(res);
-      return res.status(401).json({ authenticated: false });
+      return res.status(200).json({ authenticated: false, admin: null });
     }
 
     const result = await getPool().query(
@@ -78,8 +79,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   } catch (error) {
     console.error("[admin/session]", error);
     clearCookie(res);
-    return res.status(401).json({
+    return res.status(200).json({
       authenticated: false,
+      admin: null,
       error: "Session administrateur invalide ou indisponible.",
       code: "ADMIN_SESSION_UNAUTHENTICATED",
     });
