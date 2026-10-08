@@ -45,7 +45,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ authenticated: false, error: "Méthode non autorisée.", code: "METHOD_NOT_ALLOWED" });
   }
 
-  // No cookie: never touch Neon or AUTH_SECRET. This must always be a clean 401.
+  // No cookie: never touch Neon or AUTH_SECRET. This must always be a clean 200 probe.
   const token = tokenFromRequest(req);
   if (!token) return res.status(200).json({ authenticated: false, admin: null });
 
@@ -69,7 +69,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const admin = result.rows[0];
     if (!admin) {
       clearCookie(res);
-      return res.status(401).json({ authenticated: false });
+      return res.status(200).json({ authenticated: false, admin: null });
     }
 
     return res.status(200).json({
