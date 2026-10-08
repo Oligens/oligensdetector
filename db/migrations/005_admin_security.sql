@@ -1,4 +1,7 @@
 -- 005_admin_security.sql
+-- Admin storage and hardening. This migration is intentionally non-destructive:
+-- an existing administrator password is NEVER overwritten by a migration.
+
 CREATE TABLE IF NOT EXISTS admin_users (
   id BIGSERIAL PRIMARY KEY,
   email VARCHAR(255) UNIQUE NOT NULL,
@@ -11,18 +14,16 @@ CREATE TABLE IF NOT EXISTS admin_users (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS gemini_api_keys TEXT[] NOT NULL DEFAULT '{}';
+ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS failed_login_attempts INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS locked_until TIMESTAMPTZ NULL;
+ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ NULL;
+ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP;
+ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP;
+
 CREATE INDEX IF NOT EXISTS idx_admin_users_email ON admin_users (LOWER(email));
 
--- The password is stored only as a bcrypt hash. The supplied password was
--- hashed with bcrypt cost 12 before being placed here.
-INSERT INTO admin_users (email, password_hash, gemini_api_keys)
-VALUES (
-  'cleefolig@gmail.com',
-  '$2b$12$cQCh0LwHa1mlJKDM4Dulwe6x8K0SeRcMBrC7sOZt9TK0jc0h/FToy',
-  ARRAY[]::TEXT[]
-)
-ON CONFLICT (email) DO UPDATE
-SET password_hash = EXCLUDED.password_hash,
-    updated_at = CURRENT_TIMESTAMP;
-
--- Optional hardening: the application never returns raw keys to the browser.
+-- Bootstrap is intentionally omitted here.
+-- The application creates the admin row only when it is absent and only when
+-- ADMIN_BOOTSTRAP_PASSWORD is explicitly configured at runtime.
+-- Existing credentials are never replaced by a migration.
