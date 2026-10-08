@@ -252,16 +252,22 @@ export async function login(req: VercelRequest, res: VercelResponse) {
   } catch (error) {
     console.error("[admin/login]", error);
     const message = error instanceof Error ? error.message : "Service administrateur indisponible.";
-    if (/DATABASE_URL|POSTGRES_URL|ENOTFOUND|ECONNREFUSED|ETIMEDOUT|certificate|SSL|connection/i.test(message)) {
-      return jsonError(res, 500, "Connexion à la base de données administrateur impossible.", "ADMIN_DATABASE_ERROR");
+    // Login failures caused by infrastructure/configuration are service-unavailable,
+    // never an opaque 500. The client can then distinguish a bad password (401)
+    // from a broken deployment/database (503).
+    if (/DATABASE_URL|POSTGRES_URL|ENOTFOUND|ECONNREFUSED|ETIMEDOUT|certificate|SSL|connection|timeout/i.test(message)) {
+      return jsonError(res, 503, "Base de données administrateur temporairement indisponible.", "ADMIN_DATABASE_UNAVAILABLE");
     }
     if (/AUTH_SECRET/i.test(message)) {
-      return jsonError(res, 500, "AUTH_SECRET est absent ou invalide sur le serveur.", "AUTH_SECRET_NOT_CONFIGURED");
+      return jsonError(res, 503, "Authentification administrateur temporairement indisponible.", "AUTH_SECRET_NOT_CONFIGURED");
     }
-    if (/admin_users|relation .* does not exist|permission denied/i.test(message)) {
-      return jsonError(res, 500, "La table admin_users est absente ou inaccessible.", "ADMIN_USERS_TABLE_ERROR");
+    if (/admin_users|relation .* does not exist|permission denied|schema/i.test(message)) {
+      return jsonError(res, 503, "Le stockage administrateur est temporairement indisponible.", "ADMIN_STORAGE_UNAVAILABLE");
     }
-    return jsonError(res, 500, "Erreur interne lors de la connexion administrateur.", "ADMIN_LOGIN_INTERNAL_ERROR");
+    if (/bcrypt|compare|hash|password_hash/i.test(message)) {
+      return jsonError(res, 503, "Le service de vérification administrateur est temporairement indisponible.", "ADMIN_CRYPTO_UNAVAILABLE");
+    }
+    return jsonError(res, 503, "Service administrateur temporairement indisponible.", "ADMIN_LOGIN_UNAVAILABLE");
   }
 }
 
