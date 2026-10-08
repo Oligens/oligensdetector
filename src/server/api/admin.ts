@@ -201,7 +201,7 @@ function jsonError(res: VercelResponse, status: number, error: string, code: str
   return res.status(status).json({ success: false, error, code });
 }
 
-async function login(req: VercelRequest, res: VercelResponse) {
+export async function login(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "POST") return jsonError(res, 405, "Méthode non autorisée.", "METHOD_NOT_ALLOWED");
 
   try {
@@ -265,7 +265,7 @@ async function login(req: VercelRequest, res: VercelResponse) {
   }
 }
 
-async function session(req: VercelRequest, res: VercelResponse) {
+export async function session(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "GET") return jsonError(res, 405, "Méthode non autorisée.", "METHOD_NOT_ALLOWED");
   try {
     const admin = await requireAdmin(req);
@@ -285,7 +285,7 @@ async function session(req: VercelRequest, res: VercelResponse) {
   }
 }
 
-async function logout(req: VercelRequest, res: VercelResponse) {
+export async function logout(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "POST") return jsonError(res, 405, "Méthode non autorisée.", "METHOD_NOT_ALLOWED");
   clearAdminSession(res);
   return res.status(200).json({ ok: true });
@@ -315,7 +315,7 @@ function maskStoredKey(value: string) {
   return maskKey(value);
 }
 
-async function serviceKeys(req: VercelRequest, res: VercelResponse) {
+export async function serviceKeys(req: VercelRequest, res: VercelResponse) {
   try {
     await ensureServiceKeysSchema();
     const admin = await requireAdmin(req);
