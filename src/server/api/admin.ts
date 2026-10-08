@@ -5,7 +5,7 @@ import crypto from "node:crypto";
 import { Pool, type QueryResultRow } from "pg";
 
 const COOKIE = "oligens_admin_session";
-const ADMIN_EMAIL = "cleefolig@gmail.com";
+const ADMIN_EMAIL = (process.env.ADMIN_EMAIL?.trim() || "cleefolig@gmail.com").toLowerCase();
 
 type Admin = { id: string; email: string };
 
@@ -72,16 +72,23 @@ async function ensureAdminUsersSchema() {
     await query(`ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP`);
     await query(`CREATE INDEX IF NOT EXISTS idx_admin_users_email ON admin_users (LOWER(email))`);
 
-    // Seed only when the administrator row is absent. Existing credentials are never overwritten.
-    await query(
-      `INSERT INTO admin_users (email,password_hash,gemini_api_keys)
-       VALUES ($1,$2,ARRAY[]::TEXT[])
-       ON CONFLICT (email) DO NOTHING`,
-      [
-        ADMIN_EMAIL,
-        "$2b$12$cQCh0LwHa1mlJKDM4Dulwe6x8K0SeRcMBrC7sOZt9TK0jc0h/FToy",
-      ],
+    const existing = await query<{ id: string }>(
+      "SELECT id FROM admin_users WHERE LOWER(email)=LOWER($1) LIMIT 1",
+      [ADMIN_EMAIL],
     );
+    if (!existing.rowCount) {
+      const bootstrapPassword = process.env.ADMIN_BOOTSTRAP_PASSWORD?.trim();
+      if (!bootstrapPassword || bootstrapPassword.length < 12) {
+        throw new Error("ADMIN_BOOTSTRAP_PASSWORD doit contenir au moins 12 caractères lors du premier bootstrap.");
+      }
+      const passwordHash = await bcrypt.hash(bootstrapPassword, 12);
+      await query(
+        `INSERT INTO admin_users (email,password_hash,gemini_api_keys)
+         VALUES ($1,$2,ARRAY[]::TEXT[])
+         ON CONFLICT (email) DO NOTHING`,
+        [ADMIN_EMAIL, passwordHash],
+      );
+    }
   })().catch((error) => {
     adminUsersSchemaPromise = undefined;
     throw error;
@@ -116,6 +123,21 @@ async function ensureServiceKeysSchema() {
     `);
     await query(`CREATE INDEX IF NOT EXISTS idx_api_service_keys_active ON api_service_keys(service_name,is_active,priority)`);
     await query(`CREATE INDEX IF NOT EXISTS idx_api_service_keys_service ON api_service_keys(service_name)`);
+    await query(`
+      CREATE OR REPLACE FUNCTION touch_api_service_keys_updated_at()
+      RETURNS TRIGGER AS $
+      BEGIN
+        NEW.updated_at = NOW();
+        RETURN NEW;
+      END;
+      $ LANGUAGE plpgsql
+    `);
+    await query("DROP TRIGGER IF EXISTS trg_api_service_keys_updated_at ON api_service_keys");
+    await query(`
+      CREATE TRIGGER trg_api_service_keys_updated_at
+      BEFORE UPDATE ON api_service_keys
+      FOR EACH ROW EXECUTE FUNCTION touch_api_service_keys_updated_at()
+    `);
   })().catch((error) => {
     serviceKeysSchemaPromise = undefined;
     throw error;
