@@ -5,7 +5,7 @@ import { Pool } from "pg";
 const connectionString = process.env.DIRECT_DATABASE_URL || process.env.DATABASE_URL;
 if (!connectionString) throw new Error("DIRECT_DATABASE_URL ou DATABASE_URL est requis.");
 
-const pool = new Pool({ connectionString, max: 1, ssl: { rejectUnauthorized: true }, application_name: "oligens-detector-migrations" });
+const pool = new Pool({ connectionString, max: 1, ssl: { rejectUnauthorized: false }, application_name: "oligens-detector-migrations" });
 
 async function apply(file) {
   console.log(`[migrate] Applying ${file}...`);
