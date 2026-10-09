@@ -53,7 +53,64 @@ async function authMe(req: VercelRequest, res: VercelResponse) { if (!method(req
 async function authSignin(req: VercelRequest, res: VercelResponse) { if (!method(req, res, "POST")) return; try { if (!process.env.DATABASE_URL?.trim() && !process.env.DIRECT_DATABASE_URL?.trim() && !process.env.POSTGRES_URL?.trim() && !process.env.POSTGRES_URL_NON_POOLING?.trim() && !process.env.NEON_DATABASE_URL?.trim()) return res.status(503).json({ error: "Base de données non configurée.", code: "DATABASE_NOT_CONFIGURED" }); if (!process.env.AUTH_SECRET?.trim()) return res.status(503).json({ error: "Authentification non configurée.", code: "AUTH_SECRET_NOT_CONFIGURED" }); const email = String(body(req).email ?? "").trim().toLowerCase(), password = String(body(req).password ?? ""); if (!/^\S+@\S+\.\S+$/.test(email) || !password) return res.status(400).json({ error: "E-mail ou mot de passe invalide." }); const result = await query<{ id: string; password_hash: string; email_verified: boolean }>("SELECT id,password_hash,email_verified FROM users WHERE email=$1", [email]); const user = result.rows[0]; if (!user || !(await bcrypt.compare(password, user.password_hash))) return res.status(401).json({ error: "E-mail ou mot de passe incorrect." }); if (!user.email_verified) return res.status(403).json({ error: "Vérifiez votre e-mail avant de vous connecter.", code: "EMAIL_NOT_VERIFIED" }); setSession(res, user.id); return res.status(200).json({ user: { id: user.id, email } }); } catch (error) { console.error("[auth/signin] error", error); const message = error instanceof Error ? error.message : "Connexion impossible."; if (message.includes("AUTH_SECRET")) return res.status(503).json({ error: "Authentification non configurée sur le serveur.", code: "AUTH_SECRET_NOT_CONFIGURED" }); if (/ENOTFOUND|ECONNREFUSED|ETIMEDOUT|certificate|SSL|connection/i.test(message)) return res.status(503).json({ error: "Base de données temporairement indisponible.", code: "DATABASE_UNAVAILABLE" }); return res.status(503).json({ error: "Base de données ou service d'authentification indisponible.", code: "AUTH_DATABASE_UNAVAILABLE" }); } }
 function authSignout(req: VercelRequest, res: VercelResponse) { if (!method(req, res, "POST")) return; clearSession(res); return res.status(200).json({ ok: true }); }
 function mailer() { const user = process.env.GMAIL_SMTP_USER?.trim(), pass = process.env.GMAIL_SMTP_APP_PASSWORD?.replace(/\s+/g, ""); if (!user || !pass) throw new Error("Gmail SMTP n'est pas configuré sur le serveur."); return nodemailer.createTransport({ host: "smtp.gmail.com", port: 465, secure: true, auth: { user, pass } }); }
-async function authSignup(req: VercelRequest, res: VercelResponse) { if (!method(req, res, "POST")) return; try { const b = body(req), email = String(b.email ?? "").trim().toLowerCase(), password = String(b.password ?? ""), firstName = String(b.firstName ?? b.first_name ?? "").trim() || null, lastName = String(b.lastName ?? b.last_name ?? "").trim() || null; if (!/^\S+@\S+\.\S+$/.test(email)) return res.status(400).json({ error: "E-mail invalide.", code: "INVALID_EMAIL" }); if (password.length < 8) return res.status(400).json({ error: "Le mot de passe doit contenir au moins 8 caractères.", code: "WEAK_PASSWORD" }); const existing = await query<{ id: string }>("SELECT id FROM users WHERE lower(email)=lower($1) LIMIT 1", [email]); if (existing.rowCount) return res.status(409).json({ error: "Un compte existe déjà avec cet e-mail.", code: "EMAIL_EXISTS" }); const code = randomCode(), passwordHash = await bcrypt.hash(password, 12), codeHash = hashCode(code), userId = crypto.randomUUID(); await transaction(async client => { const exists = await client.query("SELECT id FROM users WHERE lower(email)=lower($1) LIMIT 1 FOR UPDATE", [email]); if (exists.rowCount) throw Object.assign(new Error("Un compte existe déjà avec cet e-mail."), { code: "EMAIL_EXISTS" }); await client.query(`INSERT INTO users (id,email,password_hash,first_name,last_name,email_verified,verification_code_hash,verification_code_expires_at,verification_attempts) VALUES ($1,$2,$3,$4,$5,FALSE,$6,NOW()+INTERVAL '15 minutes',0)`, [userId,email,passwordHash,firstName,lastName,codeHash]); }); try { const transport = mailer(); await transport.verify(); await transport.sendMail({ from: process.env.GMAIL_SMTP_USER, to: email, subject: "Votre code de vérification Oligens Detector", text: `Votre code Oligens Detector est ${code}. Il expire dans 15 minutes.`, html: `<h2>Oligens Detector</h2><p>Votre code de vérification :</p><p style="font-size:32px;font-weight:700;letter-spacing:8px">${code}</p><p>Ce code expire dans 15 minutes.</p>` }); } catch (mailError) { console.error("[auth/signup] SMTP error", mailError); return res.status(503).json({ error: "Compte créé mais l'e-mail de vérification n'a pas pu être envoyé.", code: "EMAIL_SERVICE_UNAVAILABLE", canRetryVerification: true }); } return res.status(201).json({ needsVerification: true, userId }); } catch (error) { console.error("[auth/signup] error", error); const code = error instanceof Error ? (error as Error & { code?: string }).code : undefined; if (code === "23505" || code === "EMAIL_EXISTS") return res.status(409).json({ error: "Un compte existe déjà avec cet e-mail.", code: "EMAIL_EXISTS" }); const message = error instanceof Error ? error.message : "Inscription impossible."; if (/ENOTFOUND|ECONNREFUSED|ETIMEDOUT|certificate|SSL|connection/i.test(message)) return res.status(503).json({ error: "Base de données temporairement indisponible.", code: "DATABASE_UNAVAILABLE" }); return res.status(500).json({ error: "Erreur interne pendant l'inscription.", code: "SIGNUP_INTERNAL_ERROR" }); } }
+async function authSignup(req: VercelRequest, res: VercelResponse) {
+  if (!method(req, res, "POST")) return;
+  try {
+    const b = body(req), email = String(b.email ?? "").trim().toLowerCase(), password = String(b.password ?? ""), firstName = String(b.firstName ?? b.first_name ?? "").trim() || null, lastName = String(b.lastName ?? b.last_name ?? "").trim() || null;
+    if (!/^\S+@\S+\.\S+$/.test(email)) return res.status(400).json({ error: "E-mail invalide.", code: "INVALID_EMAIL" });
+    if (password.length < 8) return res.status(400).json({ error: "Le mot de passe doit contenir au moins 8 caractères.", code: "WEAK_PASSWORD" });
+    // Check SMTP before inserting a user so missing mail configuration cannot leave an unusable account behind.
+    if (!process.env.GMAIL_SMTP_USER?.trim() || !process.env.GMAIL_SMTP_APP_PASSWORD?.trim()) {
+      return res.status(503).json({ error: "Le service e-mail n'est pas configuré. Contactez l'administrateur.", code: "EMAIL_SERVICE_NOT_CONFIGURED" });
+    }
+    const existing = await query<{ id: string }>("SELECT id FROM users WHERE lower(email)=lower($1) LIMIT 1", [email]);
+    if (existing.rowCount) return res.status(409).json({ error: "Un compte existe déjà avec cet e-mail.", code: "EMAIL_EXISTS" });
+    const code = randomCode(), passwordHash = await bcrypt.hash(password, 12), codeHash = hashCode(code), userId = crypto.randomUUID();
+    await transaction(async client => {
+      const exists = await client.query("SELECT id FROM users WHERE lower(email)=lower($1) LIMIT 1 FOR UPDATE", [email]);
+      if (exists.rowCount) throw Object.assign(new Error("Un compte existe déjà avec cet e-mail."), { code: "EMAIL_EXISTS" });
+      await client.query(`INSERT INTO users (id,email,password_hash,first_name,last_name,email_verified,verification_code_hash,verification_code_expires_at,verification_attempts) VALUES ($1,$2,$3,$4,$5,FALSE,$6,NOW()+INTERVAL '15 minutes',0)`, [userId,email,passwordHash,firstName,lastName,codeHash]);
+    });
+    try {
+      const transport = mailer();
+      await transport.verify();
+      await transport.sendMail({ from: process.env.GMAIL_SMTP_USER, to: email, subject: "Votre code de vérification Oligens Detector", text: `Votre code Oligens Detector est ${code}. Il expire dans 15 minutes.`, html: `<h2>Oligens Detector</h2><p>Votre code de vérification :</p><p style="font-size:32px;font-weight:700;letter-spacing:8px">${code}</p><p>Ce code expire dans 15 minutes.</p>` });
+    } catch (mailError) {
+      console.error("[auth/signup] SMTP error", mailError);
+      return res.status(503).json({ error: "Compte créé mais l'e-mail de vérification n'a pas pu être envoyé. Utilisez « Renvoyer le code » après la configuration SMTP.", code: "EMAIL_SERVICE_UNAVAILABLE", canRetryVerification: true });
+    }
+    return res.status(201).json({ needsVerification: true, userId });
+  } catch (error) {
+    console.error("[auth/signup] error", error);
+    const code = error instanceof Error ? (error as Error & { code?: string }).code : undefined;
+    if (code === "23505" || code === "EMAIL_EXISTS") return res.status(409).json({ error: "Un compte existe déjà avec cet e-mail.", code: "EMAIL_EXISTS" });
+    const message = error instanceof Error ? error.message : "Inscription impossible.";
+    if (/ENOTFOUND|ECONNREFUSED|ETIMEDOUT|certificate|SSL|connection/i.test(message)) return res.status(503).json({ error: "Base de données temporairement indisponible.", code: "DATABASE_UNAVAILABLE" });
+    return res.status(500).json({ error: "Erreur interne pendant l'inscription.", code: "SIGNUP_INTERNAL_ERROR" });
+  }
+}
+
+async function authResendVerification(req: VercelRequest, res: VercelResponse) {
+  if (!method(req, res, "POST")) return;
+  try {
+    const email = String(body(req).email ?? "").trim().toLowerCase();
+    if (!/^\S+@\S+\.\S+$/.test(email)) return res.status(400).json({ error: "E-mail invalide.", code: "INVALID_EMAIL" });
+    if (!process.env.GMAIL_SMTP_USER?.trim() || !process.env.GMAIL_SMTP_APP_PASSWORD?.trim()) return res.status(503).json({ error: "Le service e-mail n'est pas configuré.", code: "EMAIL_SERVICE_NOT_CONFIGURED" });
+    const result = await query<{ id: string; email_verified: boolean }>("SELECT id,email_verified FROM users WHERE lower(email)=lower($1) LIMIT 1", [email]);
+    const user = result.rows[0];
+    // Generic response prevents account enumeration.
+    if (!user || user.email_verified) return res.status(200).json({ ok: true, message: "Si un compte non vérifié existe, un nouveau code sera envoyé." });
+    const code = randomCode();
+    await query("UPDATE users SET verification_code_hash=$2,verification_code_expires_at=NOW()+INTERVAL '15 minutes',verification_attempts=0 WHERE id=$1", [user.id, hashCode(code)]);
+    const transport = mailer();
+    await transport.verify();
+    await transport.sendMail({ from: process.env.GMAIL_SMTP_USER, to: email, subject: "Votre nouveau code Oligens Detector", text: `Votre nouveau code Oligens Detector est ${code}. Il expire dans 15 minutes.`, html: `<h2>Oligens Detector</h2><p>Votre nouveau code :</p><p style="font-size:32px;font-weight:700;letter-spacing:8px">${code}</p><p>Ce code expire dans 15 minutes.</p>` });
+    return res.status(200).json({ ok: true, message: "Si un compte non vérifié existe, un nouveau code sera envoyé." });
+  } catch (error) {
+    console.error("[auth/resend-verification] error", error);
+    return res.status(503).json({ error: "Impossible d'envoyer le code pour le moment.", code: "EMAIL_SERVICE_UNAVAILABLE" });
+  }
+}
 async function authVerify(req: VercelRequest, res: VercelResponse) { if (!method(req, res, "POST")) return; try { const b = body(req), email = String(b.email ?? "").trim().toLowerCase(), code = String(b.code ?? "").trim(); if (!email || !/^\d{6}$/.test(code)) return res.status(400).json({ error: "E-mail ou code invalide." }); const r = await query<{ id: string; verification_code_hash: string | null; verification_expires_at: string | null }>("SELECT id,verification_code_hash,verification_code_expires_at AS verification_expires_at FROM users WHERE email=$1", [email]); const u = r.rows[0]; if (!u) return res.status(404).json({ error: "Compte introuvable." }); if (!u.verification_code_hash || !u.verification_expires_at || new Date(u.verification_expires_at) <= new Date()) return res.status(400).json({ error: "Code expiré. Demandez un nouveau code." }); if (hashCode(code) !== u.verification_code_hash) return res.status(400).json({ error: "Code incorrect." }); await query("UPDATE users SET email_verified=true,verification_code_hash=NULL,verification_code_expires_at=NULL,verification_attempts=0 WHERE id=$1", [u.id]); setSession(res, u.id); return res.status(200).json({ verified: true }); } catch (error) { console.error("[auth/verify] error", error); return res.status(503).json({ error: "Vérification temporairement indisponible." }); } }
 
 async function analyses(req: VercelRequest, res: VercelResponse) { try { const user = await getUser(req); if (!user) return res.status(401).json({ error: "Authentification requise." }); if (req.method === "GET") { const limit = Math.min(100, Math.max(1, Number(req.query.limit ?? 50))); const result = await query(`SELECT id,file_name,file_type,file_size_kb,word_count,character_count,sentence_count,ai_score,plagiarism_score,reference_score,human_score,language,analysis_result,processing_time_ms,created_at FROM analyses WHERE user_id=$1 ORDER BY created_at DESC LIMIT $2`, [user.id, limit]); return res.status(200).json({ analyses: result.rows }); } return res.status(405).json({ error: "Méthode non autorisée" }); } catch (error) { console.error("[analyses] error", error); return res.status(503).json({ error: "Données d'analyse temporairement indisponibles.", code: "ANALYSES_UNAVAILABLE" }); } }
@@ -78,6 +135,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       case "auth/signout": return authSignout(req, res);
       case "auth/signup": return authSignup(req, res);
       case "auth/verify": return authVerify(req, res);
+      case "auth/resend-verification": return authResendVerification(req, res);
       case "config": return publicConfig(req, res);
       case "extract": return extractFallback(req, res);
       case "analyses": return analyses(req, res);
